@@ -110,6 +110,8 @@ for(const m of db.movies||[]) for(const x of m.screenings||[]){ if(x.booked) x.g
 let _fest0;
 const festStart = () => _fest0 ??= Math.min(...allScreenings().map(x=>x.start.getTime()).filter(Boolean), Infinity);
 const festOn = () => now().getTime() >= festStart() - 2*3600e3;   // shows begin (2 h ahead, like "Now")
+function signinLabel(){ let was=false; try{ was=localStorage.getItem('fd-was')==='1'||localStorage.getItem('fd-in')==='1'; }catch(e){} const t=document.getElementById('signinTxt'); if(t) t.textContent = was ? 'Sign in' : 'Sign up'; }
+signinLabel();
 const GLOGO = `<svg class="glogo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>`;
 const guestNote = () => cloud.user ? '' : `<div class="gnote"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l7 3v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9v-5z"/></svg><span>Saved on this phone. <b>Sign in</b> to keep it on all your devices.</span><button class="gbtn" onclick="askSignIn()" aria-label="Sign in with Google">${GLOGO}Sign in</button></div>`;
 const playNudge = () => `<div class="empty"><h3>Not sure where to start?</h3>Play This or That – pick between films you know, and get a festival top 10 for your taste.<div style="margin-top:14px"><button class="btn primary" onclick="openTaste()">Play This or That</button></div></div>`;
@@ -932,7 +934,7 @@ function quickSave(mid){ const m=find(mid); if(!m) return; m.status = m.status==
 function askSignIn(mid,st,sid){
   cloudInit();
   const m=find(mid), back=$('#scrim').classList.contains('open'); const sc=sid&&m?.screenings.find(y=>y.id===sid); cloud.pending = m ? {t:m.title.toLowerCase(), st, sk:sc?skey(sc):''} : null;
-  openModal(`<div class="ask"><h2>${st==='watched'?'Keep track of what you watch':m?'Save films to your watchlist':'Sign in to save your watchlist'}</h2><p>Sign in with Google so your watchlist is saved to your account and works on all your devices.</p><button class="gbtn" onclick="cloudToggle()">${GLOGO}Continue with Google</button><button class="btn" onclick="${m&&back?`openDetail('${m.id}')`:'closeModal()'}">Not now</button>${CONSENT_NOTE}</div>`);
+  openModal(`<div class="ask"><h2>${st==='watched'?'Keep track of what you watch':m?'Save films to your watchlist':'Save your festival picks'}</h2><p>Create a free account with Google so your watchlist and plan are saved and work on all your devices. Already have one? Same button.</p><button class="gbtn" onclick="cloudToggle()">${GLOGO}Continue with Google</button><button class="btn" onclick="${m&&back?`openDetail('${m.id}')`:'closeModal()'}">Not now</button>${CONSENT_NOTE}</div>`);
 }
 const slug = t => String(t||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 const ytUrl = m => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(`${m.title} ${m.director||''} trailer`.replace(/\s+/g,' '));
@@ -1403,7 +1405,8 @@ save = function(){ _localSave(); if(cloud.user && cloud.ready) pushSoon(); };
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden && cloud.t) pushNow(); });
 async function onUser(u){
   cloud.user=u; cloud.ready=false; if(cloud.unsub){ cloud.unsub(); cloud.unsub=null; }
-  try{ if(u) localStorage.setItem('fd-in','1'); else localStorage.removeItem('fd-in'); }catch(e){}
+  try{ if(u){ localStorage.setItem('fd-in','1'); localStorage.setItem('fd-was','1'); } else localStorage.removeItem('fd-in'); }catch(e){}
+  signinLabel();
   if(!u && cloud.deleting){   // account just deleted: forget everything on this device too
     cloud.deleting=false; cloud.consent=null; clearLocalMarks(); try{ localStorage.removeItem(KEY+'-parked'); }catch(e){}
     updateCloudMenu(); return;
