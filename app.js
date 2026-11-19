@@ -155,7 +155,7 @@ function setView(v, fromRoute){ const ch=state.view!==v; state.view=v; persistUI
    my-list/         My Watchlist                                                      */
 const ROOT = document.baseURI.replace(/[?#].*$/,'').replace(/[^/]*$/,'');
 const VIEW_PATH = {all:'', schedule:'schedule/', mine:'my-list/', fest:'festival-darlings/'};
-const VIEW_NAME = {all:'', schedule:'Schedule', mine:'My Festival', fest:'Festival darlings'};
+const VIEW_NAME = {all:'', schedule:'Schedule', mine:'My Shortlist', fest:'Festival darlings'};
 const SITE = 'Festival Diaries · Goa';
 const filmURL = m => ROOT+'film/'+slug(m.title)+'/';
 const venueURL = v => ROOT+'venue/'+v.id+'/';
@@ -553,7 +553,7 @@ function renderCalendar(){
     if(d>=today) html += `<button class="btn tl-more" onclick="state.day='${d}';state.smode='time';window.scrollTo(0,0);render()">+ Add more shows on ${short}</button>`;
   }
   const todo = mineGroups().todo.length;
-  if(todo) html += `<button class="todo-card" onclick="state.mineTab='todo';persistUI();setView('mine')"><span class="tc-n">${todo}</span><span><b>saved film${todo>1?'s':''} still need${todo>1?'':'s'} a showtime</b>Pick times for ${todo>1?'them':'it'} in My Festival</span><span aria-hidden="true" class="tc-go">›</span></button>`;
+  if(todo) html += `<button class="todo-card" onclick="state.mineTab='todo';persistUI();setView('mine')"><span class="tc-n">${todo}</span><span><b>saved film${todo>1?'s':''} still need${todo>1?'':'s'} a showtime</b>Pick times for ${todo>1?'them':'it'} in My Shortlist</span><span aria-hidden="true" class="tc-go">›</span></button>`;
   return html;
 }
 function gapModal(aid, bid){   // films that fit in a free slot of your plan
@@ -680,7 +680,7 @@ function renderMine(){
   const g=mineGroups(), nw=db.movies.filter(m=>m.status==='want').length, n=now();
   const t = state.mineTab==='watched' ? 'watched' : 'todo';
   const tab=(k,l,c)=>`<button role="tab" aria-selected="${t===k}" class="${t===k?'on':''}" onclick="state.mineTab='${k}';persistUI();window.scrollTo(0,0);render()">${l}${c?`<small>${c}</small>`:''}</button>`;
-  let html = `<div class="mhead"><h1>My Festival</h1>${nw?`<button class="pillbtn" onclick="shareWatchlist()">${IC.share}Share my list</button>`:''}</div>
+  let html = `<div class="mhead"><h1>My Shortlist</h1>${nw?`<button class="pillbtn" onclick="shareWatchlist()">${IC.share}Share my list</button>`:''}</div>
     <div class="mseg mseg3" role="tablist">${tab('todo','To schedule',g.todo.length)}${tab('watched','Watched',g.watched.length)}</div>` + guestNote()
     + (g.planned.length ? `<button class="planlink" onclick="state.smode='plan';setView('schedule')">${IC.cal}<span><b>${g.planned.length} show${g.planned.length>1?'s':''} in My Plan</b> · see them day by day</span><span aria-hidden="true">›</span></button>` : '');
   if(t==='watched') return html + renderGrid('watched');
@@ -1615,8 +1615,8 @@ function howtoHtml(){
     <ol class="hw-steps">
       ${st(1,'🔍','Find films','Search by title or director, or use <b>Filters</b> for genre, country, track and venue. <b>Acclaimed</b> shows the 20 films with the strongest festival record. Not sure? Play <b>This or That</b> for a top 10 that suits your taste.',
         `<span class="hw-search">Search films or directors</span><div class="hw-row"><span class="fpill">Filters</span><span class="fpill acc">★ Acclaimed</span><span class="fpill">This or That</span></div>`)}
-      ${st(2,'🔖','Save the ones you like','Tap the bookmark on a poster, or <b>Save for later</b> on a film page. Saved films wait in <b>My Festival › To schedule</b>.',
-        `<div class="hw-row"><span class="pillbtn">${IC.bookmark}Save for later</span><span class="hw-arr">→</span><span class="hw-tag">My Festival · To schedule</span></div>`)}
+      ${st(2,'🔖','Save the ones you like','Tap the bookmark on a poster, or <b>Save for later</b> on a film page. Saved films wait in <b>My Shortlist › To schedule</b>.',
+        `<div class="hw-row"><span class="pillbtn">${IC.bookmark}Save for later</span><span class="hw-arr">→</span><span class="hw-tag">My Shortlist · To schedule</span></div>`)}
       ${st(3,'🕘','Tap a time to plan it','Every film shows its times as buttons. Tap one to add it to <b>My Plan</b>; tap again to remove it. The app checks your plan <b>before</b> you tap: a dashed amber time clashes with a film you’ve planned, or is too far to reach in time.',
         `<div class="hw-chips">${chip('','Sat 21','9:45','INOX Panaji')}${chip('going','Sat 21','13:30','Samrat Ashok','✓ Going')}${chip('warn','Sat 21','11:00','Maquinez Palace','Clashes with your 9:15')}</div>
          <div class="hw-key"><span><i class="k1"></i>Free to pick</span><span><i class="k2"></i>In your plan</span><span><i class="k3"></i>Clashes or too far</span><span>⇄ Switch to this – moves your plan to that time</span></div>`)}
@@ -1624,9 +1624,9 @@ function howtoHtml(){
         `<div class="hw-row"><span class="btn sm primary">✨ Pick my day</span><span class="btn sm">⇄ Swap</span><span class="btn sm">+ Going</span></div>`)}
       ${st(5,'📅','Fill the gaps','<b>Schedule › My Plan</b> shows each day as a timeline, with travel time between venues. Long breaks say how many films fit – tap <b>Find a film</b> to fill them. Save a whole day to your phone’s calendar, with a reminder an hour before each show.',
         `<div class="hw-plan"><div class="hw-pr"><b>9:15</b><span>Your first film · INOX Panaji</span></div><div class="pgap"><span><b>Free 11:05–13:30</b> · 2 h 25 min</span><span class="pg-b">Find a film · 5 fit ▾</span></div><div class="hw-pr"><b>13:30</b><span>Your next film · Samrat Ashok</span></div><span class="dcal">${IC.cal}Add day to calendar</span></div>`)}
-      ${st(6,'🎬','At the festival','Your next show and a countdown sit at the top of <b>My Plan</b>. After a show, tap <b>Mark watched</b> and give it stars – it moves to <b>My Festival › Watched</b>.',
+      ${st(6,'🎬','At the festival','Your next show and a countdown sit at the top of <b>My Plan</b>. After a show, tap <b>Mark watched</b> and give it stars – it moves to <b>My Shortlist › Watched</b>.',
         `<div class="hw-row"><span class="btn sm">✓ Watched this</span><span class="hw-stars">★★★★☆</span></div>`)}
-      ${st(7,'☁️','Sign in to keep it everywhere (optional)','Without an account your watchlist and plan stay on this phone. Sign in with Google to keep them on all your devices. Share your list with friends from <b>My Festival</b>.','')}
+      ${st(7,'☁️','Sign in to keep it everywhere (optional)','Without an account your watchlist and plan stay on this phone. Sign in with Google to keep them on all your devices. Share your list with friends from <b>My Shortlist</b>.','')}
     </ol>
     <div class="hw-tips"><b>Good to know</b><ul>
       <li>Times come from the official IFFI 2026 schedule. IFFI sometimes changes it – check the film page on the day.</li>
