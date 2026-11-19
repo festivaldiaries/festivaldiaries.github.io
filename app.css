@@ -636,7 +636,7 @@ h2.day.sub{margin-top:26px}
 .tl-now{position:absolute;left:-6px;right:0;height:2px;background:#d93025;z-index:3}.tl-now::before{content:"";position:absolute;left:-4px;top:-4px;width:10px;height:10px;border-radius:50%;background:#d93025}
 .tl-now span{position:absolute;right:0;top:-18px;font-size:11.5px;font-weight:700;color:#d93025}
 .tl-more{width:100%;padding:12px;font-size:16px;margin-bottom:4px}
-.gapm h2{margin:0 0 4px}.gapm .pg-l{margin-top:12px}
+.gapm h2{margin:0 0 4px}.tl-add{background:#fff;border-style:dashed;box-shadow:0 1px 3px rgba(30,40,110,.12)}.tl-add:hover{background:var(--brand-tint);border-style:solid}.gapm .pg-l{margin-top:12px}
 .planlink{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 14px;padding:10px 14px;border:1px solid var(--brand-line);background:var(--brand-tint);border-radius:12px;font:inherit;font-size:14.5px;color:var(--text);text-align:left;cursor:pointer}
 .planlink svg{width:20px;height:20px;color:var(--green);flex:none}.planlink span:nth-child(2){flex:1}.planlink b{color:var(--green)}.planlink>span:last-child{font-size:20px;color:var(--muted)}
 .mseg3{max-width:400px}.sseg button{white-space:nowrap}

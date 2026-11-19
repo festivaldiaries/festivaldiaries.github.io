@@ -539,8 +539,8 @@ function renderCalendar(){
         const gap=Math.round((x.start-prev.end)/60000), {need}=dpGap(prev,x), va=venueOf(prev.s.venue), vb=venueOf(x.s.venue);
         const move = !va||!vb||va.id===vb.id ? 'same venue' : kmBetween(va,vb)<1.2 ? `short walk to ${vb.name}` : `~${need} min to ${vb.name}`;
         const len = gap>=60 ? `${Math.floor(gap/60)} h${gap%60?' '+gap%60+' min':''}` : `${gap} min`;
-        const k = gap>=75 && x.start>n ? new Set(gapFits(prev,x).map(y=>y.m.id)).size : 0;
-        gaps += `<div class="tl-gap ${gap<need?'tight':''}" style="top:${Y(prev.end)};height:${H(mins(x.start)-mins(prev.end))}">${gap>=20?`<span>${gap<need?'⚠ Only ':''}${len}${gap<need?'':' free'} · ${esc(move)}</span>`:''}${k?`<button class="pg-b" onclick="gapModal('${prev.s.id}','${x.s.id}')">Find a film · ${k} fit</button>`:''}</div>`;
+        const add = gap>30 && x.start>n, k = add && gap>=60 ? new Set(gapFits(prev,x).map(y=>y.m.id)).size : 0;
+        gaps += `<div class="tl-gap ${gap<need?'tight':''}" style="top:${Y(prev.end)};height:${H(mins(x.start)-mins(prev.end))}">${gap>=20?`<span>${gap<need?'⚠ Only ':''}${len}${gap<need?'':' free'} · ${esc(move)}</span>`:''}${add?`<button class="pg-b tl-add" onclick="gapModal('${prev.s.id}','${x.s.id}')">+ Add show${k?` · ${k} fit`:''}</button>`:''}</div>`;
       }
       if(!prev || x.end>prev.end) prev=x;
     }
@@ -588,11 +588,21 @@ function planRemove(sid){
   const x=allScreenings().find(y=>y.s.id===sid); if(!x) return;
   x.s.going=false; save(); render(); toast(`Removed ${x.m.title} from My Plan`);
 }
-function gapModal(aid, bid){   // films that fit in a free slot of your plan
+function gapModal(aid, bid){   // add a show in a break of your plan: films that fit, then nearby ones that would clash
   const A=allScreenings(), a=A.find(x=>x.s.id===aid), b=A.find(x=>x.s.id===bid); if(!a||!b) return;
-  const sc=dpScores(), seen=new Set(), used={};
+  const n=now(), d=localISO(a.start), sc=dpScores(), seen=new Set(), used={};
   const f=gapFits(a,b).sort((p,q)=>(sc[q.m.id]?.s||0)-(sc[p.m.id]?.s||0)).filter(x=>!seen.has(x.m.id) && seen.add(x.m.id)).slice(0,8).sort((p,q)=>p.start-q.start);
-  openModal(`<div class="gapm"><h2>Free ${fmtTime(a.end)}–${fmtTime(b.start)}</h2><p class="tg-sub">Films that fit between <b>${esc(a.m.title)}</b> and <b>${esc(b.m.title)}</b>, with time to get there.</p><div class="pg-l">${f.map(x=>`<div class="pg-o"><button class="pg-f" onclick="openDetail('${x.m.id}')"><b>${fmtTime(x.start)}–${fmtTime(x.end)}</b><span>${esc(x.m.title)}</span><small>📍 ${esc(venueOf(x.s.venue)?.name||x.s.venue||'')}${x.s.screen?' · '+esc(x.s.screen):''} · ${runtime(x.m)} min · ${esc(dpWhy(x,used))}</small></button><button class="btn sm primary" onclick="closeModal(true);pickTime('${x.m.id}','${x.s.id}')">+ Going</button></div>`).join('')}</div></div>`);
+  const plan=A.filter(y=>y.s.going && y.m.status!=='watched' && localISO(y.start)===d), pf=new Set(A.filter(y=>y.s.going).map(y=>y.m.id)), seen2=new Set();
+  const near=A.filter(y=>localISO(y.start)===d && y.start>n && y.m.status!=='watched' && !pf.has(y.m.id) && !seen.has(y.m.id) && (+y.m.runtime||99)>=40 && y.start>=a.end-3600e3 && y.start<=b.start)
+    .map(y=>({y, w:wouldClash(y, plan)})).filter(o=>o.w)
+    .sort((p,q)=>Math.abs(p.y.start-a.end)-Math.abs(q.y.start-a.end)).filter(o=>!seen2.has(o.y.m.id) && seen2.add(o.y.m.id)).slice(0,6).sort((p,q)=>p.y.start-q.y.start);
+  const gap=Math.round((b.start-a.end)/60000), len = gap>=60 ? `${Math.floor(gap/60)} h${gap%60?' '+gap%60+' min':''}` : `${gap} min`;
+  const row = (x, w) => `<div class="pg-o ${w?'sw-cl':''}"><button class="pg-f" onclick="openDetail('${x.m.id}')"><b>${fmtTime(x.start)}–${fmtTime(x.end)}</b><span>${esc(x.m.title)}</span><small>📍 ${esc(venueOf(x.s.venue)?.name||x.s.venue||'')}${x.s.screen?' · '+esc(x.s.screen):''} · ${runtime(x.m)} min${w?'':' · '+esc(dpWhy(x,used))}</small>${w?`<small class="dp-c">⚠ ${w.far?'Too far from':w.gap<0?'Overlaps':'Too tight with'} ${esc(w.y.m.title)} (${fmtTime(w.y.start)})</small>`:''}</button><button class="btn sm ${w?'':'primary'}" onclick="closeModal(true);pickTime('${x.m.id}','${x.s.id}')">+ Going</button></div>`;
+  openModal(`<div class="gapm"><h2>Add a show</h2><div class="sw-cur"><b>Free ${fmtTime(a.end)}–${fmtTime(b.start)}</b> · ${len} · ${fmtShort(a.start)}</div>
+    <p class="tg-sub">${f.length?`Films that fit between <b>${esc(a.m.title)}</b> and <b>${esc(b.m.title)}</b>, with time to get there.`:`No film fits fully in this ${len} break between <b>${esc(a.m.title)}</b> and <b>${esc(b.m.title)}</b>.`}</p>
+    ${f.length?`<div class="pg-l">${f.map(x=>row(x)).join('')}</div>`:''}
+    ${near.length?`<h3 class="sw-h">Around this break – would clash with your plan</h3><div class="pg-l">${near.map(o=>row(o.y,o.w)).join('')}</div>`:''}
+    ${!f.length&&!near.length?'<p class="tg-sub">Nothing else is showing around this time.</p>':''}</div>`);
 }
 function dayICS(d){   // one calendar file with every show you've planned that day
   const ev=allScreenings().filter(x=>x.s.going && x.m.status!=='watched' && localISO(x.start)===d && x.end>now());
