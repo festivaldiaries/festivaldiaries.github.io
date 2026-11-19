@@ -76,16 +76,31 @@ function allScreenings(){
   for(const m of db.movies) for(const s of (m.screenings||[])) if(s.date) out.push({m,s,start:dt(s),end:endOf(m,s)});
   return out.sort((a,b)=>a.start-b.start);
 }
-function clashes(){
-  // screenings you're planning to attend (booked, or the chosen one) that overlap (incl. 15 min buffer)
+function clashes(){ return new Set(clashInfo().keys()); }
+/* For every planned show that clashes: which film it clashes with, and why (times overlap, or not enough time to get between venues). */
+function clashInfo(){
   const active = allScreenings().filter(x => x.m.status!=='watched' && (x.s.booked || x.s.going));
-  const set = new Set();
+  const out = new Map(), add = (id,t) => { if(!out.has(id)) out.set(id,[]); out.get(id).push(t); };
+  const vname = x => venueOf(x.s.venue)?.name || x.s.venue || 'venue TBA';
+  const when = x => `${fmtTime(x.start)}–${fmtTime(x.end)}`;
   for(let i=0;i<active.length;i++) for(let j=i+1;j<active.length;j++){
-    const a=active[i], b=active[j];
-    if(b.start.getTime() < a.end.getTime() + travelMin(venueOf(a.s.venue),venueOf(b.s.venue))*60000){ set.add(a.s.id); set.add(b.s.id); }
+    const a=active[i], b=active[j];   // a starts first
+    const va=venueOf(a.s.venue), vb=venueOf(b.s.venue), need=travelMin(va,vb), gap=Math.round((b.start-a.end)/60000);
+    if(gap >= need) continue;
+    if(gap < 0){
+      const ov = Math.round((Math.min(a.end,b.end)-b.start)/60000);
+      add(a.s.id, `Overlaps “${b.m.title}” (${when(b)}, ${vname(b)}) by ${ov} min`);
+      add(b.s.id, `Overlaps “${a.m.title}” (${when(a)}, ${vname(a)}) by ${ov} min`);
+    } else {
+      const same = va && vb && (va.id===vb.id || kmBetween(va,vb)<1.2);
+      const trip = same ? `allow at least 15` : `~${need} min drive, ${Math.max(1,Math.round(kmBetween(va,vb)*1.4))} km`;
+      add(a.s.id, `Too tight before “${b.m.title}” (starts ${fmtTime(b.start)}, ${vname(b)}): only ${gap} min to get there (${trip})`);
+      add(b.s.id, `Too tight after “${a.m.title}” (ends ${fmtTime(a.end)}, ${vname(a)}): only ${gap} min to get here (${trip})`);
+    }
   }
-  return set;
+  return out;
 }
+const clashHtml = (ci,id) => (ci.get(id)||[]).map(t=>`<div class="pwarn">⚠️ ${esc(t)}</div>`).join('');
 function nextScreening(m){ const n=now(); return (m.screenings||[]).filter(s=>s.date).map(s=>({s,start:dt(s)})).filter(x=>x.start>n).sort((a,b)=>a.start-b.start)[0]; }
 const CONF = 'Screening confirmed';
 const confirmInfo = m => m.confirmed?.on ? m.confirmed : ((m.screenings||[]).find(s=>s.source) ? {on:true, source:(m.screenings.find(s=>s.source)).source, label:'Showtime source'} : null);
@@ -412,6 +427,7 @@ function filmGroup(g, cl, n, withDate){
     </div>
     ${notes.map(t=>`<div class="snote">${esc(t)}</div>`).join('')}
     <div class="tchips">${g.items.map(x=>timeChip(x,cl,n,withDate)).join('')}</div>
+    ${cl.info?g.items.filter(x=>x.s.going).map(x=>clashHtml(cl.info,x.s.id)).join(''):''}
   </div>`;
 }
 function dayChipsHtml(days, today){
@@ -424,7 +440,7 @@ function earlierLink(hidden){
   return hidden ? `<button class="earlier" onclick="state.showPast=true;persistUI();render()">Earlier shows (${hidden}) ▾</button>` : '';
 }
 function renderScheduleTime(){
-  const n = now(), cl = clashes(), today = localISO(n);
+  const n = now(), ci = clashInfo(), cl = Object.assign(new Set(ci.keys()),{info:ci}), today = localISO(n);
   let items = allScreenings().filter(x => x.m.status!=='watched' || x.start<n);
   items = items.filter(x => matches(x.m) && tagOK(x.m) && (!state.venue || venueOf(x.s.venue)?.id===state.venue) && fOK(x.m) && (!state.now || (x.end>now() && x.start-now()<NOW_WIN)));
   const allDays = [...new Set(items.map(x=>localISO(x.start)))].sort();
@@ -458,7 +474,7 @@ function renderScheduleTime(){
   return html;
 }
 function renderPlan(){
-  const n = now(), cl = clashes(), today = localISO(n);
+  const n = now(), ci = clashInfo(), cl = Object.assign(new Set(ci.keys()),{info:ci}), today = localISO(n);
   const mine = allScreenings().filter(x => x.s.going && x.m.status!=='watched');
   const hidden = state.showPast ? 0 : mine.filter(x=>x.end<=n).length;
   const list = state.showPast ? mine : mine.filter(x=>x.end>n);
@@ -488,7 +504,7 @@ function renderPlan(){
         <div class="info"><div class="t">${esc(x.m.title)}</div>
           <div class="meta">📍 ${esc(venueOf(x.s.venue)?.name||x.s.venue||'Venue TBA')}${x.s.screen?' · '+esc(x.s.screen):''} · ${runtime(x.m)} min</div>
           ${x.s.note?`<div class="snote">${esc(x.s.note)}</div>`:''}
-          ${cl.has(x.s.id)?'<div class="pwarn">⚠️ Overlaps another show, or too little time to travel</div>':''}
+          ${clashHtml(ci,x.s.id)}
           ${live?'<span class="tag booked">Now showing</span>':''}</div>
         <div class="acts" onclick="event.stopPropagation()">${past
           ? `<button class="btn sm" onclick="quickWatched('${x.m.id}','${x.s.id}')">✓ Watched</button>`
@@ -885,7 +901,8 @@ function tgGoBtn(m){
 }
 function tgGo(mid,sid){ const m=find(mid), s=m?.screenings.find(y=>y.id===sid); if(!s) return;
   s.going=!s.going; if(s.going && m.status!=='watched') m.status='want'; save(); render(); tgResults();
-  toast(s.going?(cloud.user?'Added to My Plan':'Added to My Plan on this phone · Sign in to keep it everywhere'):'Removed from My Plan'); }
+  const w = s.going && clashInfo().get(s.id);
+  toast(w ? '⚠️ Clash: '+w[0]+(w.length>1?` (+${w.length-1} more)`:'') : s.going?(cloud.user?'Added to My Plan':'Added to My Plan on this phone · Sign in to keep it everywhere'):'Removed from My Plan'); }
 function tgSaveAll(after){
   const saved=tgLoad(); if(saved) G.p=saved.p.slice();
   let n=0; for(const x of tgRecommend(G.p).list) if(x.m.status==='none'||!x.m.status){ x.m.status='want'; n++; }
@@ -912,7 +929,7 @@ function toggleS(mid,sid,field){
   s[field]=!s[field];
   if(m.status==='none' && (s.going||s.booked)) m.status='want';
   save(); render(); if($('#scrim').classList.contains('open')) openDetail(mid);
-  if(s[field] && clashes().has(s.id)) toast('⚠️ Heads up: this overlaps another show on your plan, or leaves too little time to travel');
+  if(s[field]){ const w=clashInfo().get(s.id); if(w) toast('⚠️ Clash: '+w[0]+(w.length>1?` (+${w.length-1} more)`:'')); }
 }
 function quickWatched(mid,sid){
   const m=find(mid); const s=m.screenings.find(s=>s.id===sid);
@@ -981,7 +998,7 @@ window.addEventListener('popstate', ()=>{   // keep the page in step with the UR
 function openDetail(id){
   const m = find(id); if(!m) return;
   if(!DETAIL && window.__DETAIL_URL) ensureDetails().then(()=>{ if($('#scrim').classList.contains('open') && location.href===filmURL(m)) openDetail(id); });
-  const n = now(), cl = clashes();
+  const n = now(), ci = clashInfo(), cl = Object.assign(new Set(ci.keys()),{info:ci});
   const scr = [...(m.screenings||[])].sort((a,b)=>dt(a)-dt(b));
   const r = m.rating||0;
   const starsHtml = [1,2,3,4,5].map(i=>{
@@ -1020,7 +1037,7 @@ function openDetail(id){
       <div><b>${fmtShort(st)}, ${fmtTime(st)}</b> <span style="color:var(--muted)">– ${fmtTime(en)}</span><br>
         <span style="color:var(--muted);font-size:15px">📍 ${s.venue?(venueOf(s.venue)?`<a class="vlink" href="${venueURL(venueOf(s.venue))}" onclick="event.preventDefault();openVenue('${venueOf(s.venue).id}')">${esc(s.venue)}</a>`:`<a class="vlink" href="${mapUrl(s.venue)}" target="_blank" rel="noopener">${esc(s.venue)}</a>`):'Venue TBA'}${s.screen?' · '+esc(s.screen):''}${s.seat?' · Seat '+esc(s.seat):''}</span>
         ${s.note?`<div class="snote">${esc(s.note)}</div>`:''}
-        <div>${s.going?'<span class="tag plan">Going</span>':''}${cl.has(s.id)?'<span class="tag clash">Clash</span>':''}${m.watchedAt===s.id?'<span class="tag booked">Watched here</span>':''}</div>
+        <div>${s.going?'<span class="tag plan">Going</span>':''}${cl.has(s.id)?'<span class="tag clash">Clash</span>':''}${m.watchedAt===s.id?'<span class="tag booked">Watched here</span>':''}</div>${clashHtml(ci,s.id)}
       </div>
       <div class="acts" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${past
         ? (m.status!=='watched'?`<button class="btn sm" onclick="quickWatched('${m.id}','${s.id}')">✓ Watched this</button>`:'')
