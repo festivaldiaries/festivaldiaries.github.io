@@ -407,11 +407,10 @@ function renderSchedule(){
   const shows = hasShows();
   if(!shows) return `<div class="soon"><b>Showtimes coming soon</b><span>IFFI hasn’t published the 2026 schedule yet. Here are the festival venues – tap one for directions.</span></div>` + renderVenues();
   const n = now(), myUp = allScreenings().filter(x => x.s.going && x.end>n && x.m.status!=='watched').length;
-  if(!['plan','time','venue'].includes(state.smode)) state.smode = myUp ? 'plan' : 'time';
+  if(state.smode!=='time') state.smode = 'plan';   // My Plan unless you switch to All shows
   const mode = state.smode;
   const tab = (k,l,extra='') => `<button role="tab" aria-selected="${mode===k}" class="${mode===k?'on':''}" onclick="state.smode='${k}';window.scrollTo(0,0);render()">${l}${extra}</button>`;
-  const seg = `<div class="mseg sseg" role="tablist">${tab('plan','My Plan', myUp?`<small>${myUp}</small>`:'')}${tab('time','All shows')}${tab('venue','By venue')}</div>`;
-  if(mode==='venue') return seg + renderVenues();
+  const seg = `<div class="mseg sseg" role="tablist">${tab('plan','My Plan', myUp?`<small>${myUp}</small>`:'')}${tab('time','All shows')}</div>`;
   if(mode==='plan') return seg + renderCalendar();
   return seg + renderScheduleTime();
 }
