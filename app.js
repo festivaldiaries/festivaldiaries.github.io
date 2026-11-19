@@ -165,6 +165,7 @@ function routeOf(href){
   if((r=p.match(/^film\/([^/]+)\/?$/))) return {film:decodeURIComponent(r[1])};
   if((r=p.match(/^venue\/([^/]+)\/?$/))) return {venue:decodeURIComponent(r[1])};
   if(/^privacy\/?$/.test(p)) return {privacy:true};
+  if(/^how-to\/?$/.test(p)) return {howto:true};
   if(/^play\/?$/.test(p)){ const q=(href.split('?')[1]||'').split('#')[0]; return {play:true, by:new URLSearchParams(q).get('by')||''}; }
   if(/^list\/?$/.test(p)){ const q=(href.split('?')[1]||'').split('#')[0]; const sp=new URLSearchParams(q); return {list:sp.get('f')||'', by:sp.get('n')||''}; }
   if(/^schedule\/?$/.test(p)) return {view:'schedule'};
@@ -174,13 +175,14 @@ function routeOf(href){
 }
 function syncTitle(){
   const r=routeOf(), m=r.film&&db.movies.find(x=>slug(x.title)===r.film), v=r.venue&&venueById(r.venue);
-  const t = m ? m.title : v ? v.name : r.privacy ? 'Privacy & your data' : r.play ? 'This or That' : r.list!==undefined ? listTitle(r.by) : VIEW_NAME[r.view||state.view];
+  const t = m ? m.title : v ? v.name : r.privacy ? 'Privacy & your data' : r.howto ? 'How to use' : r.play ? 'This or That' : r.list!==undefined ? listTitle(r.by) : VIEW_NAME[r.view||state.view];
   document.title = t ? t+' · '+SITE : SITE;
 }
 function openRoute(r){
   if(r.film){ const m=db.movies.find(x=>slug(x.title)===r.film); if(m){ openDetail(m.id); return true; } }
   if(r.venue && venueById(r.venue)){ openVenue(r.venue); return true; }
   if(r.privacy){ openPrivacy(); return true; }
+  if(r.howto){ openHowto(); return true; }
   if(r.play){ if(tgLoad()) openTaste(true); else openTaste(false, r.by); return true; }
   if(r.list!==undefined){ openSharedList(r.list, r.by); return true; }
   return false;
@@ -191,7 +193,7 @@ function initRoute(){
   const hf=(location.hash.match(/film=([^&]+)/)||[])[1], hv=(location.hash.match(/venue=([^&]+)/)||[])[1];
   if(hf) history.replaceState(null,'',ROOT+'film/'+hf+'/'); else if(hv) history.replaceState(null,'',ROOT+'venue/'+hv+'/');
   const r=routeOf();
-  if(r.film||r.venue||r.privacy||r.play||r.list!==undefined){ initRoute.pending=r; history.replaceState({view:'all'},'',ROOT); state.view='all'; }
+  if(r.film||r.venue||r.privacy||r.howto||r.play||r.list!==undefined){ initRoute.pending=r; history.replaceState({view:'all'},'',ROOT); state.view='all'; }
   else { state.view=r.view; history.replaceState({view:r.view},'',ROOT+VIEW_PATH[r.view]+(r.unknown?'':location.search)); }
 }
 initRoute();
@@ -1250,7 +1252,7 @@ function closeModal(fromBack){ if(!$('#scrim').classList.contains('open')) retur
 window.addEventListener('popstate', ()=>{ if($('#sheet').classList.contains('open')) closeSheet(true); else if($('#scrim').classList.contains('open')) closeModal(true); });
 window.addEventListener('popstate', ()=>{   // keep the page in step with the URL (back / forward)
   const r=routeOf();
-  if(r.film||r.venue||r.privacy||r.play||r.list!==undefined){ if(!$('#scrim').classList.contains('open')) openRoute(r); }
+  if(r.film||r.venue||r.privacy||r.howto||r.play||r.list!==undefined){ if(!$('#scrim').classList.contains('open')) openRoute(r); }
   else if(state.view!==r.view) setView(r.view, true);
   syncTitle();
 });
@@ -1451,6 +1453,7 @@ function menuAction(a){
   if(a==='key') setKey();
   if(a==='cloud') cloudToggle();
   if(a==='privacy') openPrivacy();
+  if(a==='howto') openHowto();
   if(a==='taste') openTaste(!!tgLoad());
   if(a==='account') openAccount();
   if(a==='mine') setView('mine');
@@ -1599,6 +1602,40 @@ function downloadMyData(){
   download(`festival-diaries-my-data-${localISO()}.json`, JSON.stringify(data,null,2), 'application/json');
   toast('Downloaded');
 }
+/* ---------- How to use: a step-by-step guide with small pictures made from the real buttons ---------- */
+function howtoHtml(){
+  const st = (n,ic,t,p,demo) => `<li class="hw-step"><span class="hw-n" aria-hidden="true">${n}</span><div class="hw-body"><h3><span class="hw-ic" aria-hidden="true">${ic}</span>${t}</h3><p>${p}</p>${demo?`<div class="hw-demo" aria-hidden="true" inert>${demo}</div>`:''}</div></li>`;
+  const chip = (cls,d,t,pl,i) => `<span class="tchip ${cls}"><small class="tdate">${d}</small><b>${t}</b><span>${pl}</span>${i?`<i class="${cls==='warn'?'cw':''}">${i}</i>`:''}</span>`;
+  const flow = [['🔍','Find'],['🔖','Save'],['🕘','Schedule'],['🎬','Watch']].map(([e,l],i)=>`${i?'<span class="hw-arr">→</span>':''}<span class="hw-f"><span>${e}</span>${l}</span>`).join('');
+  return `<div class="howto">
+    <h2>How to use Festival Diaries</h2>
+    <p class="hw-lead">Plan IFFI Goa 2026 in four moves – find films, save them, pick showtimes that fit, then watch and rate. It’s free; your picks are saved on your phone.</p>
+    <div class="hw-flow">${flow}</div>
+    <ol class="hw-steps">
+      ${st(1,'🔍','Find films','Search by title or director, or use <b>Filters</b> for genre, country, track and venue. <b>Acclaimed</b> shows the 20 films with the strongest festival record. Not sure? Play <b>This or That</b> for a top 10 that suits your taste.',
+        `<span class="hw-search">Search films or directors</span><div class="hw-row"><span class="fpill">Filters</span><span class="fpill acc">★ Acclaimed</span><span class="fpill">This or That</span></div>`)}
+      ${st(2,'🔖','Save the ones you like','Tap the bookmark on a poster, or <b>Save for later</b> on a film page. Saved films wait in <b>My Festival › To schedule</b>.',
+        `<div class="hw-row"><span class="pillbtn">${IC.bookmark}Save for later</span><span class="hw-arr">→</span><span class="hw-tag">My Festival · To schedule</span></div>`)}
+      ${st(3,'🕘','Tap a time to plan it','Every film shows its times as buttons. Tap one to add it to <b>My Plan</b>; tap again to remove it. The app checks your plan <b>before</b> you tap: a dashed amber time clashes with a film you’ve planned, or is too far to reach in time.',
+        `<div class="hw-chips">${chip('','Sat 21','9:45','INOX Panaji')}${chip('going','Sat 21','13:30','Samrat Ashok','✓ Going')}${chip('warn','Sat 21','11:00','Maquinez Palace','Clashes with your 9:15')}</div>
+         <div class="hw-key"><span><i class="k1"></i>Free to pick</span><span><i class="k2"></i>In your plan</span><span><i class="k3"></i>Clashes or too far</span><span>⇄ Switch to this – moves your plan to that time</span></div>`)}
+      ${st(4,'✨','Let it pick your day','In <b>Schedule</b>, open <b>Pick my day</b>. You get the day’s 7 best films for your taste, close to each other. Choose with <b>+ Going</b>, swap any film, or tap <b>Add the best that fit together</b>.',
+        `<div class="hw-row"><span class="btn sm primary">✨ Pick my day</span><span class="btn sm">⇄ Swap</span><span class="btn sm">+ Going</span></div>`)}
+      ${st(5,'📅','Fill the gaps','<b>My Plan</b> shows your day in order with travel in mind. Long breaks say how many films fit – tap <b>Find a film</b> to fill them. Save a whole day to your phone’s calendar, with a reminder an hour before each show.',
+        `<div class="hw-plan"><div class="hw-pr"><b>9:15</b><span>Your first film · INOX Panaji</span></div><div class="pgap"><span><b>Free 11:05–13:30</b> · 2 h 25 min</span><span class="pg-b">Find a film · 5 fit ▾</span></div><div class="hw-pr"><b>13:30</b><span>Your next film · Samrat Ashok</span></div><span class="dcal">${IC.cal}Add day to calendar</span></div>`)}
+      ${st(6,'🎬','At the festival','Tap <b>Now</b> on Discover for films starting in the next 2 hours. After a show, tap <b>Mark watched</b> and give it stars – it moves to <b>My Festival › Watched</b>.',
+        `<div class="hw-row"><span class="fpill now"><span class="dot"></span>Now</span><span class="btn sm">✓ Watched this</span><span class="hw-stars">★★★★☆</span></div>`)}
+      ${st(7,'☁️','Sign in to keep it everywhere (optional)','Without an account your watchlist and plan stay on this phone. Sign in with Google to keep them on all your devices. Share your list with friends from <b>My Festival</b>.','')}
+    </ol>
+    <div class="hw-tips"><b>Good to know</b><ul>
+      <li>Times come from the official IFFI 2026 schedule. IFFI sometimes changes it – check the film page on the day.</li>
+      <li>Travel times are estimates: the app allows at least 15 min between nearby Panaji venues, and more for Porvorim, Margao or Ponda.</li>
+      <li>Festival Diaries is an unofficial fan guide. For delegate passes and seat booking, use the official IFFI channels.</li>
+    </ul></div>
+    <div class="hw-acts"><button class="btn primary" onclick="closeModal();setView('all')">Start finding films</button><button class="btn" onclick="openTaste(!!tgLoad())">Play This or That</button></div>
+  </div>`;
+}
+function openHowto(){ $('#menu').classList.remove('open'); openModal(howtoHtml(), ROOT+'how-to/'); syncTitle(); }
 function openPrivacy(){ $('#menu').classList.remove('open'); openModal(privacyHtml(), ROOT+'privacy/'); syncTitle(); }
 function askConsent(){
   openModal(`<div class="ask"><h2>We’ve added a privacy notice</h2><p>Your name, email and film lists are saved to your account so they sync across devices. Nothing else is collected.</p><button class="btn primary" onclick="agreeConsent()">OK, keep syncing</button><button class="btn" onclick="openPrivacy()">Read the notice</button><button class="btn danger" onclick="deleteAccount()">Delete my account</button></div>`);
