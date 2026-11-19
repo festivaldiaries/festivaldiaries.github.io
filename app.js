@@ -100,6 +100,18 @@ function clashInfo(){
   }
   return out;
 }
+/* Your plan, for warning on a showtime BEFORE you tap it */
+function planCtx(){ const ci=clashInfo(), n=now(); return Object.assign(new Set(ci.keys()),{info:ci, plan:allScreenings().filter(x=>x.s.going && x.m.status!=='watched' && x.end>n)}); }
+function wouldClash(x, plan){   // the first planned show (other film) this one can't be combined with
+  let best=null;
+  for(const y of plan||[]){ if(y.m===x.m) continue;
+    const {gap,need}=dpGap(x,y); if(gap>=need) continue;
+    const vx=venueOf(x.s.venue), vy=venueOf(y.s.venue), far = gap>=0 && vx && vy && vx.id!==vy.id && kmBetween(vx,vy)>=1.2;
+    const w={y, far, gap, need, why: gap<0 ? `Overlaps “${y.m.title}” (${fmtTime(y.start)}–${fmtTime(y.end)})` : far ? `Only ${gap} min to get from ${(x.start<y.start?vy:vx).name} – it’s ~${need} min away (“${y.m.title}”, ${fmtTime(y.start)})` : `Only ${gap} min between this and “${y.m.title}” (${fmtTime(y.start)})`};
+    if(!best || (gap<0 && best.gap>=0)) best=w;
+  }
+  return best;
+}
 const clashHtml = (ci,id) => (ci.get(id)||[]).map(t=>`<div class="pwarn">⚠️ ${esc(t)}</div>`).join('');
 function nextScreening(m){ const n=now(); return (m.screenings||[]).filter(s=>s.date).map(s=>({s,start:dt(s)})).filter(x=>x.start>n).sort((a,b)=>a.start-b.start)[0]; }
 const CONF = 'Screening confirmed';
@@ -131,7 +143,9 @@ const festOn = () => now().getTime() >= festStart() - 2*3600e3;   // shows begin
 function signinLabel(){ let was=false; try{ was=localStorage.getItem('fd-was')==='1'||localStorage.getItem('fd-in')==='1'; }catch(e){} const t=document.getElementById('signinTxt'); if(t) t.textContent = was ? 'Sign in' : 'Sign up'; }
 signinLabel();
 const GLOGO = `<svg class="glogo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>`;
-const guestNote = () => cloud.user ? '' : `<div class="gnote"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l7 3v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9v-5z"/></svg><span>Saved on this phone. <b>Sign in</b> to keep it on all your devices.</span><button class="gbtn" onclick="askSignIn()" aria-label="Sign in with Google">${GLOGO}Sign in</button></div>`;
+const guestNote = () => { if(cloud.user || !db.movies.some(m=>m.status==='want'||m.status==='watched')) return ''; try{ if(localStorage.getItem('fd-gn-x')) return ''; }catch(e){}
+  return `<div class="gnote"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l7 3v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9v-5z"/></svg><span>Saved on this phone. <b>Sign in</b> to keep it on all your devices.</span><button class="gbtn" onclick="askSignIn()" aria-label="Sign in with Google">${GLOGO}Sign in</button><button class="gn-x" aria-label="Dismiss" title="Dismiss" onclick="gnHide()">×</button></div>`; };
+function gnHide(){ try{ localStorage.setItem('fd-gn-x','1'); }catch(e){} document.querySelectorAll('.gnote').forEach(e=>e.remove()); }
 const playNudge = () => `<div class="empty"><h3>Not sure where to start?</h3>Play This or That – pick between films you know, and get a festival top 10 for your taste.<div style="margin-top:14px"><button class="btn primary" onclick="openTaste()">Play This or That</button></div></div>`;
 const hasShows = () => db.movies.some(m=>(m.screenings||[]).some(s=>s.date));
 function setView(v, fromRoute){ const ch=state.view!==v; state.view=v; persistUI(); if(!fromRoute){ const u=ROOT+(VIEW_PATH[v]||''); if(location.href!==u) history.pushState({view:v},'',u); } syncTitle(); if(ch) window.scrollTo(0,0); render(); }
@@ -141,7 +155,7 @@ function setView(v, fromRoute){ const ch=state.view!==v; state.view=v; persistUI
    my-list/         My Watchlist                                                      */
 const ROOT = document.baseURI.replace(/[?#].*$/,'').replace(/[^/]*$/,'');
 const VIEW_PATH = {all:'', schedule:'schedule/', mine:'my-list/', fest:'festival-darlings/'};
-const VIEW_NAME = {all:'', schedule:'Schedule', mine:'Watchlist', fest:'Festival darlings'};
+const VIEW_NAME = {all:'', schedule:'Schedule', mine:'My Festival', fest:'Festival darlings'};
 const SITE = 'Festival Diaries · Goa';
 const filmURL = m => ROOT+'film/'+slug(m.title)+'/';
 const venueURL = v => ROOT+'venue/'+v.id+'/';
@@ -198,7 +212,7 @@ document.addEventListener('keydown', e => {
 
 /* ---------- render ---------- */
 function render(){
-  const _hl=()=>document.querySelectorAll('#tabs a').forEach(b=>{ const on=b.dataset.v===state.view; b.classList.toggle('on', on); if(on) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
+  const _hl=()=>document.querySelectorAll('#tabs a').forEach(b=>{ const on=b.dataset.v===(state.view==='fest'?'all':state.view); b.classList.toggle('on', on); if(on) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
   const n=now();
   const shows = hasShows(); document.body.classList.toggle('noshows', !shows);
   if(!shows) state.now=false;
@@ -361,6 +375,7 @@ function filterBar(extra='', right=''){
   return `<div class="filters"><div class="frow">
     ${hasShows()&&festOn()?`<button class="fpill now ${state.now?'set':''}" aria-pressed="${!!state.now}" onclick="state.now=!state.now;render()" title="Showing now or starting in the next 2 hours"><span class="dot"></span>Now</button>`:''}
     <button class="fpill" aria-haspopup="dialog" onclick="openFilters(this)"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Filters${sel.length?` · ${sel.length}`:''}</button>
+    ${extra}
     ${sel.map(k=>`<button class="fpill set x" aria-label="Remove ${esc(state[k])}" onclick="state.${k}='';render()">${esc(k==='venue'?(venueById(state.venue)?.name||state.venue):state[k])}${X}</button>`).join('')}
   </div></div>`;
 }
@@ -403,27 +418,34 @@ function renderSchedule(){
 function timeChip(x, cl, n, withDate){
   const live = x.start<=n && x.end>n, past = x.end<=n;
   const v = venueOf(x.s.venue), place = [v?.name || x.s.venue || 'Venue TBA', x.s.screen].filter(Boolean).join(' · ');
-  const cls = ['tchip', x.s.going&&'going', cl.has(x.s.id)&&'clash', live&&'live', past&&'past'].filter(Boolean).join(' ');
+  const w = !x.s.going && !past && cl.plan ? wouldClash(x, cl.plan) : null;
+  const sw = !x.s.going && !past && !w && cl.plan?.some(y=>y.m===x.m);
+  const cls = ['tchip', x.s.going&&'going', cl.has(x.s.id)&&'clash', w&&'warn', live&&'live', past&&'past'].filter(Boolean).join(' ');
   const when = (withDate ? fmtShort(x.start)+' · ' : '') + fmtTime(x.start);
-  const lab = `${when}, ${place}${x.s.going?', going – tap to remove':', tap to mark as going'}`;
+  const lab = `${when}, ${place}${x.s.going?', going – tap to remove':w?'. Warning: '+w.why+'. Tap to add anyway':sw?', tap to switch your plan to this time':', tap to mark as going'}`;
   const act = past ? (x.m.status==='watched' ? `openDetail('${x.m.id}')` : `quickWatched('${x.m.id}','${x.s.id}')`) : `pickTime('${x.m.id}','${x.s.id}')`;
-  return `<button class="${cls}" aria-pressed="${!!x.s.going}" aria-label="${esc(lab)}" onclick="event.stopPropagation();${act}">${withDate?`<small class="tdate">${fmtShort(x.start)}</small>`:''}<b>${fmtTime(x.start)}</b><span>${esc(place)}</span>${x.s.going?'<i>✓ Going</i>':live?'<i>Now showing</i>':past&&x.m.status!=='watched'?'<i>Mark watched</i>':cl.has(x.s.id)?'<i>Clash</i>':''}</button>`;
+  return `<button class="${cls}" aria-pressed="${!!x.s.going}" aria-label="${esc(lab)}"${w?` title="${esc(w.why)}"`:''} onclick="event.stopPropagation();${act}">${withDate?`<small class="tdate">${fmtShort(x.start)}</small>`:''}<b>${fmtTime(x.start)}</b><span>${esc(place)}</span>${x.s.going?(cl.has(x.s.id)?'<i>✓ Going · clash</i>':'<i>✓ Going</i>'):live&&!w?'<i>Now showing</i>':past&&x.m.status!=='watched'?'<i>Mark watched</i>':w?`<i class="cw">${w.far?'Too far from':w.gap<0?'Clashes with':'Tight after'} ${esc(w.y.m.title)}</i>`:sw?'<i class="sw">⇄ Switch to this</i>':''}</button>`;
 }
-function pickTime(mid, sid){
+function pickTime(mid, sid){   // tapping another time of a film you've planned moves the plan there
+  const m=find(mid), s=m?.screenings.find(y=>y.id===sid); if(!s) return;
+  const n=now(), moved = !s.going ? m.screenings.filter(y=>y!==s && y.going && y.date && endOf(m,y)>n) : [];
+  moved.forEach(y=>y.going=false);
   toggleS(mid, sid, 'going');
-  const s = find(mid)?.screenings.find(y=>y.id===sid);
-  if(s?.going && !clashes().has(sid)) toast('Added to My Plan');
+  if(s.going && !clashes().has(sid)) toast(moved.length ? `Moved to ${fmtShort(dt(s))} · ${fmtTime(dt(s))}` : 'Added to My Plan'+signHint());
+  else if(!s.going) toast('Removed from My Plan');
 }
+let _sh=0; const signHint = () => cloud.user || _sh++ ? '' : ' · saved on this phone';
 /* one card per film per day, with all its times as buttons */
-function filmGroup(g, cl, n, withDate){
+function filmGroup(g, cl, n, withDate, inMine){
   const m = g.m, going = g.items.some(x=>x.s.going);
   const notes = [...new Set(g.items.map(x=>x.s.note).filter(Boolean))];
   const meta = [runtime(m)+' min', m.language, m.section].filter(Boolean).map(esc).join(' · ');
-  const tags = (m.status==='want'?'<span class="tag saved">Saved</span>':'') + (m.status==='watched'?'<span class="tag booked">Watched</span>':'');
+  const tags = (m.status==='want'&&!inMine?'<span class="tag saved">Saved</span>':'') + (m.status==='watched'?'<span class="tag booked">Watched</span>':'');
   return `<div class="fgroup ${going?'has-going':''}">
     <div class="fg-head" onclick="openDetail('${m.id}')">
       <div class="mini">${poster(m,true)}</div>
       <div class="info"><div class="t">${esc(m.title)}</div><div class="meta">${meta}</div>${tags?`<div class="fg-tags">${tags}</div>`:''}</div>
+      ${inMine?`<button class="icbtn fg-rm" aria-label="Remove ${esc(m.title)} from your list" title="Remove from your list" onclick="event.stopPropagation();quickSave('${m.id}')">${IC.x}</button>`:''}
     </div>
     ${notes.map(t=>`<div class="snote">${esc(t)}</div>`).join('')}
     <div class="tchips">${g.items.map(x=>timeChip(x,cl,n,withDate)).join('')}</div>
@@ -440,7 +462,7 @@ function earlierLink(hidden){
   return hidden ? `<button class="earlier" onclick="state.showPast=true;persistUI();render()">Earlier shows (${hidden}) ▾</button>` : '';
 }
 function renderScheduleTime(){
-  const n = now(), ci = clashInfo(), cl = Object.assign(new Set(ci.keys()),{info:ci}), today = localISO(n);
+  const n = now(), cl = planCtx(), ci = cl.info, today = localISO(n);
   let items = allScreenings().filter(x => x.m.status!=='watched' || x.start<n);
   items = items.filter(x => matches(x.m) && tagOK(x.m) && (!state.venue || venueOf(x.s.venue)?.id===state.venue) && fOK(x.m) && (!state.now || (x.end>now() && x.start-now()<NOW_WIN)));
   const allDays = [...new Set(items.map(x=>localISO(x.start)))].sort();
@@ -474,7 +496,7 @@ function renderScheduleTime(){
   return html;
 }
 function renderPlan(){
-  const n = now(), ci = clashInfo(), cl = Object.assign(new Set(ci.keys()),{info:ci}), today = localISO(n);
+  const n = now(), cl = planCtx(), ci = cl.info, today = localISO(n);
   const mine = allScreenings().filter(x => x.s.going && x.m.status!=='watched');
   const hidden = state.showPast ? 0 : mine.filter(x=>x.end<=n).length;
   const list = state.showPast ? mine : mine.filter(x=>x.end>n);
@@ -491,14 +513,16 @@ function renderPlan(){
     </div>`;
   html += earlierLink(hidden);
   if(dpDays().length) html += dpCardHtml();
-  if(mine.length) html = guestNote() + html;
   if(!list.length){
-    if(!db.movies.some(m=>m.status==='want'||m.status==='watched')) html += playNudge(); else html += `<div class="empty"><h3>Your plan is empty</h3>Open <b>All shows</b> and tap a showtime to add it here.<div style="margin-top:14px"><button class="btn primary" onclick="state.smode='time';render()">Browse all shows</button></div></div>`;
+    if(!db.movies.some(m=>m.status==='want'||m.status==='watched')) html += playNudge(); else html += `<div class="empty"><h3>Your plan is empty</h3>Open <b>All shows</b> and tap a showtime to add it here.<div style="margin-top:14px"><button class="btn primary" onclick="state.smode='time';setView('schedule')">Browse all shows</button></div></div>`;
   } else {
-    let day='';
+    let day='', prev=null;
     for(const x of list){
       const d = localISO(x.start);
-      if(d!==day){ day=d; const c=list.filter(y=>localISO(y.start)===d).length; html += `<h2 class="day"><span>${fmtDay(x.start)}${d===today?' · Today':''}</span><span>${c} show${c>1?'s':''}</span></h2>`; }
+      if(d!==day){ day=d; prev=null; const c=list.filter(y=>localISO(y.start)===d).length, up=list.some(y=>localISO(y.start)===d && y.end>n);
+        html += `<h2 class="day"><span>${fmtDay(x.start)}${d===today?' · Today':''}</span><span>${c} show${c>1?'s':''}${up?` · <button class="dcal" onclick="dayICS('${d}')" aria-label="Add all of ${fmtDay(x.start)} to your calendar">${IC.cal}Add day to calendar</button>`:''}</span></h2>`; }
+      if(prev && prev.end>n && x.start>prev.end) html += gapHtml(prev, x);
+      if(!prev || x.end>prev.end) prev = x;
       const past = x.end<=n, live = x.start<=n && !past;
       html += `<div class="prow ${past?'past':''} ${cl.has(x.s.id)?'clash':''}" onclick="openDetail('${x.m.id}')">
         <div class="time"><b>${fmtTime(x.start)}</b><small>– ${fmtTime(x.end)}</small></div>
@@ -513,16 +537,37 @@ function renderPlan(){
       </div>`;
     }
   }
-  // saved films that still need a showtime
-  const goingIds = new Set(mine.filter(x=>x.end>n).map(x=>x.m.id));
-  const pick = db.movies.filter(m => m.status==='want' && !goingIds.has(m.id))
-    .map(m => ({m, items: allScreenings().filter(x=>x.m===m && x.end>n)}))
-    .filter(g => g.items.length).sort((a,b)=>a.items[0].start-b.items[0].start);
-  if(pick.length){
-    html += `<h2 class="day sub"><span>Saved films – pick a showtime</span><span>${pick.length}</span></h2>`;
-    for(const g of pick) html += filmGroup({m:g.m, items:g.items}, cl, n, true);
-  }
+  const todo = mineGroups().todo.length;
+  if(todo) html += `<button class="todo-card" onclick="state.mineTab='todo';persistUI();setView('mine')"><span class="tc-n">${todo}</span><span><b>saved film${todo>1?'s':''} still need${todo>1?'':'s'} a showtime</b>Tap to pick times for ${todo>1?'them':'it'}</span><span aria-hidden="true" class="tc-go">›</span></button>`;
   return html;
+}
+
+/* free time between two planned shows, and the films that fit in it */
+function gapFits(a, b){
+  const n=now(), d=localISO(a.start), all=allScreenings(), pf=new Set(all.filter(x=>x.s.going).map(x=>x.m.id));
+  return all.filter(x=>localISO(x.start)===d && x.start>n && x.m.status!=='watched' && !pf.has(x.m.id) && (+x.m.runtime||99)>=40 && dpFits(a,x) && dpFits(x,b) && x.start>=a.end && x.end<=b.start);
+}
+function gapHtml(a, b){
+  const gap=Math.round((b.start-a.end)/60000); if(gap<75) return '';
+  const k=new Set(gapFits(a,b).map(x=>x.m.id)).size, len = gap>=60 ? `${Math.floor(gap/60)} h${gap%60?' '+gap%60+' min':''}` : `${gap} min`;
+  return `<div class="pgap"><span class="pg-t"><b>Free ${fmtTime(a.end)}–${fmtTime(b.start)}</b> · ${len}</span>${k?`<button class="pg-b" aria-expanded="false" onclick="gapOpen(this,'${a.s.id}','${b.s.id}')">Find a film · ${k} fit<span aria-hidden="true">▾</span></button>`:'<span class="pg-n">No film fits – time for a meal</span>'}<div class="pg-l" hidden></div></div>`;
+}
+function gapOpen(btn, aid, bid){
+  const box=btn.parentNode.querySelector('.pg-l'), open=box.hidden; box.hidden=!open; btn.setAttribute('aria-expanded', open); if(!open) return;
+  const A=allScreenings(), a=A.find(x=>x.s.id===aid), b=A.find(x=>x.s.id===bid); if(!a||!b) return;
+  const sc=dpScores(), seen=new Set(), used={};
+  const f=gapFits(a,b).sort((p,q)=>(sc[q.m.id]?.s||0)-(sc[p.m.id]?.s||0)).filter(x=>!seen.has(x.m.id) && seen.add(x.m.id)).slice(0,6).sort((p,q)=>p.start-q.start);
+  box.innerHTML = f.map(x=>`<div class="pg-o"><button class="pg-f" onclick="openDetail('${x.m.id}')"><b>${fmtTime(x.start)}–${fmtTime(x.end)}</b><span>${esc(x.m.title)}</span><small>📍 ${esc(venueOf(x.s.venue)?.name||x.s.venue||'')}${x.s.screen?' · '+esc(x.s.screen):''} · ${runtime(x.m)} min · ${esc(dpWhy(x,used))}</small></button><button class="btn sm primary" onclick="pickTime('${x.m.id}','${x.s.id}')">+ Going</button></div>`).join('');
+}
+function dayICS(d){   // one calendar file with every show you've planned that day
+  const ev=allScreenings().filter(x=>x.s.going && x.m.status!=='watched' && localISO(x.start)===d && x.end>now());
+  if(!ev.length) return toast('No upcoming shows planned that day');
+  const f=v=>v.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,''), e=v=>String(v).replace(/[\;,]/g,c=>'\\'+c).replace(/\n/g,'\\n');
+  const L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Festival Diaries Goa//EN','METHOD:PUBLISH'];
+  for(const x of ev){ const t=`${x.m.title} – IFFI`; L.push('BEGIN:VEVENT','UID:'+x.s.id+'-'+slug(x.m.title)+'@festivaldiaries','DTSTAMP:'+f(new Date()),'DTSTART:'+f(x.start),'DTEND:'+f(x.end),'SUMMARY:'+e(t),'LOCATION:'+e([venueOf(x.s.venue)?.name||x.s.venue,x.s.screen].filter(Boolean).join(', ')),'DESCRIPTION:'+e(filmURL(x.m)),'BEGIN:VALARM','TRIGGER:-PT1H','ACTION:DISPLAY','DESCRIPTION:'+e(t),'END:VALARM','END:VEVENT'); }
+  L.push('END:VCALENDAR');
+  download(`iffi-${d}.ics`, L.join('\r\n'), 'text/calendar');
+  toast(`Calendar file saved – open it to add ${ev.length} show${ev.length>1?'s':''}`);
 }
 
 function cardHtml(m, badge){
@@ -543,7 +588,7 @@ function renderGrid(kind){
   let list = db.movies.filter(m => (kind==='all' ? fOK(m) : m.status===kind) && matches(m));
   if(kind==='watched') list.sort((a,b)=>(b.watchedOn||'').localeCompare(a.watchedOn||'') || byTitle(a,b));
   else list.sort((kind==='want'||kind==='all') && hasShows() ? byNext : byTitle);
-  let html = kind==='all' ? (filtering ? '' : `<p class="dhero"><b>Your free guide to IFFI Goa 2026</b> · 20–28 Nov · ${officialList().length} films, every showtime</p>` + tasteBanner()) + filterBar() + (filtering ? '' : tasteReady()) : '';
+  let html = kind==='all' ? (filtering ? '' : `<p class="dhero"><b>Your free guide to IFFI Goa 2026</b> · 20–28 Nov · ${officialList().length} films, every showtime</p>` + tasteBanner()) + filterBar(discoverPills()) + (filtering ? '' : tasteReady()) : '';
   if(!list.length){
     if(state.now){ const nx = allScreenings().filter(x=>x.start>now()).sort((a,b)=>a.start-b.start)[0];
       return html + `<div class="empty"><h3>Nothing screening right now</h3>No shows are on or starting in the next 2 hours.${nx?`<div style="margin-top:8px">Next up: <a href="${filmURL(nx.m)}" onclick="event.preventDefault();openDetail('${nx.m.id}')"><b>${esc(nx.m.title)}</b></a> · ${fmtShort(nx.start)} · ${fmtTime(nx.start)}</div>`:''}<div style="margin-top:14px"><button class="btn primary" onclick="state.now=false;render()">Show all films</button></div></div>`; }
@@ -557,11 +602,12 @@ function renderGrid(kind){
   }
   return html + `<div class="grid">${list.map(m=>cardHtml(m)).join('')}</div>`;
 }
-function renderFest(){   // the 20 new films with the strongest festival-circuit record
-  const fc = db.movies.filter(m=>m.fc).sort((a,b)=>a.fc-b.fc);
-  if(!fc.length) return `<div class="empty"><h3>Festival darlings</h3>The list is loading. Refresh the page if it doesn’t appear.</div>`;
-  return `<h1 class="sec-h fest-h">Festival darlings <span>${fc.length}</span></h1><p class="sec-sub">This year’s most-travelled films on the festival circuit – ranked by where they played: Cannes, Venice, Berlin, Toronto, Sundance and more.</p>
-    <div class="grid">${fc.map(m=>cardHtml(m, `#${m.fc} · ${esc(String(m.fcl).split(' · ')[0])}`)).join('')}</div>`;
+const discoverPills = () => `<button class="fpill acc ${state.view==='fest'?'set':''}" aria-pressed="${state.view==='fest'}" onclick="setView(state.view==='fest'?'all':'fest')" title="The 20 most-travelled films on the festival circuit"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="5.5"/><path d="M8.6 13.4L7 21l5-2.6 5 2.6-1.6-7.6"/></svg>Acclaimed</button><button class="fpill" onclick="openTaste(!!tgLoad())" title="Pick between films you know – get a top 10 for your taste">${TG_IC.replace('width="22" height="22"','width="17" height="17"')}This or That</button>`;
+function renderFest(){   // Discover, sorted by festival-circuit record (keeps the festival-darlings/ link)
+  const fc = db.movies.filter(m=>m.fc && matches(m) && fOK(m)).sort((a,b)=>a.fc-b.fc);
+  const html = filterBar(discoverPills()) + `<h1 class="sec-h fest-h">Acclaimed <span>${fc.length}</span></h1><p class="sec-sub">This year’s most-travelled films on the festival circuit – ranked by where they played: Cannes, Venice, Berlin, Toronto, Sundance and more.</p>`;
+  if(!fc.length) return html + `<div class="empty"><h3>${db.movies.some(m=>m.fc)?'No films match':'The list is loading'}</h3>${db.movies.some(m=>m.fc)?'Try another search or filter.':'Refresh the page if it doesn’t appear.'}</div>`;
+  return html + `<div class="grid">${fc.map(m=>cardHtml(m, `#${m.fc} · ${esc(String(m.fcl).split(' · ')[0])}`)).join('')}</div>`;
 }
 const IC = {
   share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>',
@@ -573,6 +619,7 @@ const IC = {
   trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
   bookmark:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>',
   x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M12 13v5M9.5 15.5h5"/></svg>',
 };
 /* ---------- shared watchlist: a public page at list/?f=slug.slug… ---------- */
 const firstName = () => String(cloud.user?.displayName||'').trim().split(/\s+/)[0].slice(0,30);
@@ -617,11 +664,32 @@ function saveSharedList(code, by){
   let k=0; for(const m of films) if(m.status!=='want' && m.status!=='watched'){ m.status='want'; k++; }
   save(); render(); openSharedList(code, by); toast(k ? `Saved ${k} film${k>1?'s':''} to My Watchlist` : 'Already in your watchlist');
 }
+function mineGroups(){
+  const n=now(), all=allScreenings();
+  const planned=all.filter(x=>x.s.going && x.end>n && x.m.status!=='watched'), pf=new Set(planned.map(x=>x.m.id));
+  const todo=[], gone=[];
+  for(const m of db.movies){ if(m.status!=='want' || pf.has(m.id)) continue; const items=all.filter(x=>x.m===m && x.end>n); if(items.length) todo.push({m,items}); else gone.push(m); }
+  todo.sort((a,b)=>a.items[0].start-b.items[0].start);
+  return {todo, gone, planned, watched:db.movies.filter(m=>m.status==='watched')};
+}
 function renderMine(){
   if(!cloud.user) cloudInit();
-  const nw = db.movies.filter(m=>m.status==='want').length, nd = db.movies.filter(m=>m.status==='watched').length;
-  const t = state.mineTab==='watched' ? 'watched' : 'want';
-  return `<div class="mseg" role="tablist"><button role="tab" aria-selected="${t==='want'}" class="${t==='want'?'on':''}" onclick="state.mineTab='want';persistUI();render()">To watch<small>${nw}</small></button><button role="tab" aria-selected="${t==='watched'}" class="${t==='watched'?'on':''}" onclick="state.mineTab='watched';persistUI();render()">Watched<small>${nd}</small></button></div>` + ((nw||nd) ? guestNote() : '') + (t==='want' && nw ? `<div class="sharebar"><span>${nw} film${nw>1?'s':''} you want to see</span><button class="pillbtn" onclick="shareWatchlist()">${IC.share}Share</button></div>` : '') + renderGrid(t);
+  const g=mineGroups(), nw=db.movies.filter(m=>m.status==='want').length, n=now();
+  let t=state.mineTab; if(!['todo','plan','watched'].includes(t)) t = (g.todo.length || !g.planned.length) ? 'todo' : 'plan';
+  const tab=(k,l,c)=>`<button role="tab" aria-selected="${t===k}" class="${t===k?'on':''}" onclick="state.mineTab='${k}';persistUI();window.scrollTo(0,0);render()">${l}${c?`<small>${c}</small>`:''}</button>`;
+  let html = `<div class="mhead"><h1>My Festival</h1>${nw?`<button class="pillbtn" onclick="shareWatchlist()">${IC.share}Share my list</button>`:''}</div>
+    <div class="mseg mseg3" role="tablist">${tab('todo','To schedule',g.todo.length)}${tab('plan','Planned',g.planned.length)}${tab('watched','Watched',g.watched.length)}</div>` + guestNote();
+  if(t==='plan') return html + renderPlan();
+  if(t==='watched') return html + renderGrid('watched');
+  if(!g.todo.length && !g.gone.length){
+    if(!nw && !g.planned.length && !g.watched.length) return html + playNudge();
+    return html + `<div class="empty"><h3>${g.planned.length?'Everything’s scheduled':'Nothing to schedule'}</h3>${g.planned.length?'Every film on your list has a showtime in your plan.':'Save films from Discover and they’ll wait here for a showtime.'}<div style="margin-top:14px"><button class="btn primary" onclick="${g.planned.length?`state.mineTab='plan';persistUI();render()`:`setView('all')`}">${g.planned.length?'See my plan':'Discover films'}</button></div></div>`;
+  }
+  const cl=planCtx();
+  if(g.todo.length) html += `<p class="sec-sub">${g.todo.length} saved film${g.todo.length>1?'s':''} without a showtime yet. Tap a time to add it to your plan – times that clash with your plan say so before you tap.</p>`;
+  for(const x of g.todo) html += filmGroup({m:x.m, items:x.items}, cl, n, true, true);
+  if(g.gone.length) html += `<h2 class="day sub"><span>No showtimes left</span><span>${g.gone.length}</span></h2><div class="grid">${g.gone.map(m=>cardHtml(m)).join('')}</div>`;
+  return html;
 }
 
 const statusLabel = m => m.status==='watched' ? 'Watched' : m.status==='want' ? 'Watchlist' : '';
@@ -889,7 +957,6 @@ function tgResults(){
       ${x.m.status==='want'?'<span class="tg-saved" aria-label="In your watchlist">✓</span>':''}</button>${tgGoBtn(x.m)}</li>`).join('')}</ol>
     <div class="tg-acts">
       ${allIn?'<span class="tg-ok">✓ All in your watchlist</span>':`<button class="btn primary" onclick="tgSaveAll()">Save all 10 to my watchlist</button>`}
-      <button class="btn" onclick="openDayPick()">✨ Pick my day from these tastes</button>
       <button class="btn" onclick="tgShare()">${IC.share} Invite friends to play</button>
       ${G.p.length<TG_PAIRS.length?`<button class="btn" onclick="tgMore()">Sharpen it: 10 more pairs</button>`:''}
       <button class="linkbtn" onclick="openTaste()">Start over</button>
@@ -904,7 +971,7 @@ function tgGoBtn(m){
 function tgGo(mid,sid){ const m=find(mid), s=m?.screenings.find(y=>y.id===sid); if(!s) return;
   s.going=!s.going; if(s.going && m.status!=='watched') m.status='want'; save(); render(); tgResults();
   const w = s.going && clashInfo().get(s.id);
-  toast(w ? '⚠️ Clash: '+w[0]+(w.length>1?` (+${w.length-1} more)`:'') : s.going?(cloud.user?'Added to My Plan':'Added to My Plan on this phone · Sign in to keep it everywhere'):'Removed from My Plan'); }
+  toast(w ? '⚠️ Clash: '+w[0]+(w.length>1?` (+${w.length-1} more)`:'') : s.going?'Added to My Plan'+signHint():'Removed from My Plan'); }
 /* ---------- Pick my day: up to 6 shows on one day, matched to your taste, with no clashes ---------- */
 const DP_KEY='fd-day', DP_MAX=6;
 function dpLoad(){ try{ return JSON.parse(localStorage.getItem(DP_KEY)||'{}')||{}; }catch(e){ return {}; } }
@@ -932,9 +999,9 @@ function dpCands(date, skip=[]){
   const elsewhere=new Set(allScreenings().filter(x=>x.s.going && localISO(x.start)!==date).map(x=>x.m.id));
   return allScreenings().filter(x=>localISO(x.start)===date && x.start>n && sc[x.m.id] && !skip.includes(x.m.id) && !elsewhere.has(x.m.id));
 }
-function dpBuild(date, skip=[], keep=[]){
+function dpBuild(date, skip=[], keep=[], pool){
   dpScores();
-  let C=dpCandsA(date, skip).sort((a,b)=>a.start-b.start);
+  let C=(pool||dpCandsA(date, skip)).slice().sort((a,b)=>a.start-b.start);
   const force=new Set([...keep, ...C.filter(x=>x.s.going).map(x=>x.s.id)]);
   const val = x => 4 + _dpSc[x.m.id].s + (force.has(x.s.id)?100:0);
   const hop = (a,b) => { const va=venueOf(a.s.venue), vb=venueOf(b.s.venue); return va&&vb&&va.g!==vb.g ? 1+travelMin(va,vb)/30 : 0; };
@@ -978,7 +1045,7 @@ const DP_BEST=7;
 const DP_AREAS = [['pan','Panaji & Porvorim',['pan','por']],['mar','Margao',['mar']],['pon','Ponda',['pon']],['nor','North Goa beaches',['nor']]];
 const dpAreaOf = x => { const g=venueOf(x.s.venue)?.g; return (DP_AREAS.find(a=>a[2].includes(g))||[])[0]; };
 function dpArea(date){ if(state.dpArea) return state.dpArea; const go=allScreenings().find(x=>x.s.going && localISO(x.start)===date); return (go && dpAreaOf(go)) || 'pan'; }
-const dpMode = () => state.dpMode==='fit' ? 'fit' : 'best';
+const dpMode = () => 'best';
 const dpKey = d => d+'|'+dpMode()+'|'+dpArea(d);
 function dpBuildBest(date, skip=[]){   // the day's top films by your taste – clashes allowed, so you can choose
   dpScores();
@@ -1016,8 +1083,7 @@ function openDayPick(date){
   const fill = items.length<(mode==='fit'?DP_MAX:DP_BEST) && dpAlts(date, null).length;
   openModal(`<div class="dp">
     <h2>Pick my day</h2>
-    <div class="mseg dp-mode" role="tablist"><button role="tab" aria-selected="${mode==='best'}" class="${mode==='best'?'on':''}" onclick="state.dpMode='best';openDayPick('${date}')">Best ${DP_BEST} · choose yours</button><button role="tab" aria-selected="${mode==='fit'}" class="${mode==='fit'?'on':''}" onclick="state.dpMode='fit';openDayPick('${date}')">No clashes</button></div>
-    <p class="tg-sub">${mode==='best' ? `The day’s ${DP_BEST} best matches for your taste. Some clash – they’re marked, so you can choose the ones you’ll go to and tap <b>+ Going</b>.` : `Up to ${DP_MAX} shows that all fit in one day, with time to get between venues.`}</p>
+    <p class="tg-sub">The day’s ${DP_BEST} best matches for your taste. Some clash – tap <b>+ Going</b> on the ones you choose, or let us pick a set that all fit.</p>
     <div class="chips dp-days">${days.map(chip).join('')}</div>
     ${(()=>{ const n={}; for(const x of dpCands(date)) { const a=dpAreaOf(x); if(a) (n[a] ||= new Set()).add(x.m.id); } const av=DP_AREAS.filter(a=>(n[a[0]]?.size||0)>=2);
       return av.length>1 ? `<div class="chips dp-areas"><span class="dp-lab">Area:</span>${av.map(a=>`<button class="chip ${dpArea(date)===a[0]?'on':''}" onclick="state.dpArea='${a[0]}';openDayPick('${date}')">${a[1]} <small>${n[a[0]].size}</small></button>`).join('')}</div>` : ''; })()}
@@ -1036,7 +1102,9 @@ function openDayPick(date){
     </li>`; }).join('')}</ol>` : `<div class="empty"><h3>Nothing fits this day</h3>Try another day, or <button class="linkbtn" onclick="dpReset('${date}')">start this day again</button>.</div>`}
     ${fill?`<button class="btn dp-add" onclick="dpSwapOpen('${date}','')">+ Add another film</button><div id="dp-addalts" class="dp-alts" hidden></div>`:''}
     <div class="tg-acts">
-      ${mode==='fit' ? (toAdd?`<button class="btn primary" onclick="dpAddAll('${date}')">Add ${toAdd===items.length?'all '+toAdd:toAdd+' more'} to My Plan</button>`:items.length?'<span class="tg-ok">✓ All in My Plan</span>':'') : ''}
+      ${(()=>{ if(!toAdd) return items.length?'<span class="tg-ok">✓ All in My Plan</span>':'';
+        const k=dpBuild(date,[],[],items.filter(x=>x.start>now())).filter(id=>!dpItem(id)?.s.going).length;
+        return k ? `<button class="btn primary" onclick="dpAuto('${date}')">${nClash?`✨ Add the best ${k} that fit together`:`Add ${k===items.length?'all '+k:k+' more'} to My Plan`}</button>` : '<span class="dp-none">The rest clash with your plan – tap <b>⇄ Swap</b> or <b>+ Going</b> if you’d rather see one of them.</span>'; })()}
       <button class="linkbtn" onclick="dpReset('${date}')">Start this day again</button>
     </div>
   </div>`);
@@ -1079,6 +1147,13 @@ function dpRemove(date, sid){
   const x=dpItem(sid); rec.ids=rec.ids.filter(id=>id!==sid); if(x && !rec.skip.includes(x.m.id)) rec.skip.push(x.m.id);
   dpStore(all); openDayPick(date);
   if(x?.s.going) toast('Removed from this shortlist – it’s still in My Plan');
+}
+function dpAuto(date){   // from the shortlist, the best set that all fit together (keeps what's already in your plan)
+  const rec=dpLoad()[dpKey(date)]; if(!rec) return;
+  const pool=rec.ids.map(dpItem).filter(x=>x && x.start>now()), ids=dpBuild(date, [], [], pool);
+  let k=0; for(const id of ids){ const x=dpItem(id); if(x && !x.s.going){ x.s.going=true; if(!x.m.status||x.m.status==='none') x.m.status='want'; k++; } }
+  save(); render(); openDayPick(date);
+  toast(k ? `Added ${k} show${k>1?'s':''} that fit together${ids.length<pool.length?' – clashing ones left out':''}` : 'Nothing more fits around what’s in your plan');
 }
 function dpReset(date){ const all=dpLoad(); delete all[dpKey(date)]; dpStore(all); openDayPick(date); }
 function dpAddAll(date){
@@ -1135,7 +1210,7 @@ function toggleLike(mid){ const m=find(mid); m.liked=!m.liked; save(); render();
 function quickSave(mid){ const m=find(mid); if(!m) return; m.status = m.status==='want' ? 'none' : 'want'; save();
   if(state.view==='all'){ const on=m.status==='want'; document.querySelectorAll(`.bm[data-mid="${mid}"]`).forEach(b=>{ b.classList.toggle('on',on); b.setAttribute('aria-label', on?'Remove from my watchlist':'Save to my watchlist'); }); $('#n-mine').textContent = db.movies.filter(x=>x.status==='want').length; }
   else render();
-  toast(m.status==='want'?(cloud.user?'Saved to My Watchlist':'Saved on this phone · Sign in to keep it everywhere'):'Removed from My Watchlist'); }
+  toast(m.status==='want'?(cloud.user?'Saved to My Watchlist':'Saved'+signHint()):'Removed from your list'); }
 function askSignIn(mid,st,sid){
   cloudInit();
   const m=find(mid), back=$('#scrim').classList.contains('open'); const sc=sid&&m?.screenings.find(y=>y.id===sid); cloud.pending = m ? {t:m.title.toLowerCase(), st, sk:sc?skey(sc):''} : null;
@@ -1183,7 +1258,7 @@ window.addEventListener('popstate', ()=>{   // keep the page in step with the UR
 function openDetail(id){
   const m = find(id); if(!m) return;
   if(!DETAIL && window.__DETAIL_URL) ensureDetails().then(()=>{ if($('#scrim').classList.contains('open') && location.href===filmURL(m)) openDetail(id); });
-  const n = now(), ci = clashInfo(), cl = Object.assign(new Set(ci.keys()),{info:ci});
+  const n = now(), cl = planCtx(), ci = cl.info;
   const scr = [...(m.screenings||[])].sort((a,b)=>dt(a)-dt(b));
   const r = m.rating||0;
   const starsHtml = [1,2,3,4,5].map(i=>{
@@ -1195,6 +1270,14 @@ function openDetail(id){
   const extra = [m.originalTitle?`<div><b>Original title:</b> ${esc(m.originalTitle)}</div>`:'', cs.length>1?`<div><b>Countries:</b> ${esc(cs.join(', '))}</div>`:'', m.cast?`<div><b>Cast:</b> ${esc(m.cast)}</div>`:'', m.festivals?`<div><b>Festivals:</b> ${esc(String(m.festivals).replace(/\s*\|\s*/g,', '))}</div>`:'', m.notes?`<div>${esc(m.notes)}</div>`:''].join('');
   const going = scr.find(s=>(s.going||s.booked) && endOf(m,s)>n);
   const I = d => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const X = allScreenings().filter(x=>x.m===m && (m.status!=='watched' || x.end>n)), upN = X.filter(x=>x.end>n).length;
+  const notes = [...new Set(X.map(x=>x.s.note).filter(Boolean))];
+  const vl = x => { const v=venueOf(x.s.venue); return v ? `<a class="vlink" href="${venueURL(v)}" onclick="event.preventDefault();openVenue('${v.id}')">${esc(v.name)}</a>` : esc(x.s.venue||'Venue TBA'); };
+  const showsHtml = X.length ? `<section class="dshows" id="dshows"><div class="dsh-h"><b>${upN?'Pick a showtime':'Showtimes'}</b><span>${upN?`${upN} show${upN>1?'s':''} left`:'All shows are over'}</span></div>
+    ${notes.map(t=>`<div class="snote">${esc(t)}</div>`).join('')}
+    <div class="tchips">${X.map(x=>timeChip(x,cl,n,true)).join('')}</div>
+    ${X.filter(x=>x.s.going && x.end>n).map(x=>`<div class="dgo"><span>✓ <b>Going · ${fmtShort(x.start)}, ${fmtTime(x.start)}–${fmtTime(x.end)}</b><br>📍 ${vl(x)}${x.s.screen?' · '+esc(x.s.screen):''}</span><button class="btn sm" onclick="addToCal('${m.id}','${x.s.id}')">📅 Add to calendar</button></div>${clashHtml(ci,x.s.id)}`).join('')}
+    <div class="srcline">From the official IFFI 2026 schedule · tap a time to add it to My Plan</div></section>` : '';
   const tgb = window._tgBack ? `<button class="linkbtn tg-back" onclick="openTaste(true)">‹ Your top 10</button>` : '';
   openModal(tgb+`<button class="shr" aria-label="Share this film" title="Share" onclick="shareFilm('${m.id}')">${I('<path d="M12 15V3.5M7.5 8L12 3.5 16.5 8"/><path d="M5 12.5v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>')}</button><div class="dhead">
     <a class="dposter" href="${ytUrl(m)}" target="_blank" rel="noopener" aria-label="Watch the trailer of ${esc(m.title)} on YouTube">${poster(m,false,true)}<span class="play"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/></svg>Trailer</span></a>
@@ -1207,27 +1290,12 @@ function openDetail(id){
     </div>
   </div>
   ${m.status==='watched'
-    ? `<div class="myrate"><span>✓ You’ve seen this</span><div class="rate">${starsHtml}</div><button class="linkbtn" onclick="setStatus('${m.id}','watched')">Undo</button></div>`
-    : `${going
-      ? `<button class="pbtn going" onclick="document.getElementById('dshows')?.scrollIntoView({behavior:'smooth',block:'start'})">${I('<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>')}<span><b>Going</b> · ${fmtShort(dt(going))} · ${fmtTime(dt(going))}${going.venue?' · '+esc(going.venue):''}</span></button>`
-      : `<button class="pbtn ${m.status==='want'?'on':''}" aria-pressed="${m.status==='want'}" onclick="setStatus('${m.id}','want')">${I(m.status==='want'?'<path d="M5 12.5l4.5 4.5L19 7.5"/>':'<path d="M6.5 3.5h11v17l-5.5-4-5.5 4z"/>')}<span>${m.status==='want'?'In my watchlist':'Want to see'}</span></button>`}
-      ${festOn()?`<div class="seenrow"><button class="linkbtn" onclick="setStatus('${m.id}','watched')">Already seen it?</button></div>`:''}`}
+    ? `<div class="myrate"><span>✓ You’ve seen this</span><div class="rate">${starsHtml}</div><button class="linkbtn" onclick="setStatus('${m.id}','watched')">Undo</button></div>` : ''}
+  ${showsHtml}
+  ${m.status!=='watched' ? `<div class="dacts">${going ? '' : `<button class="pillbtn ${m.status==='want'?'on':''}" aria-pressed="${m.status==='want'}" onclick="setStatus('${m.id}','want')">${m.status==='want'?I('<path d="M5 12.5l4.5 4.5L19 7.5"/>'):IC.bookmark}${m.status==='want'?'In my watchlist':'Save for later'}</button>`}${festOn()?`<button class="linkbtn" onclick="setStatus('${m.id}','watched')">Already seen it?</button>`:''}</div>` : ''}
   ${m.synopsis||extra?`<div class="dsyn"><p class="syn clamp">${esc(m.synopsis||'')}</p><div class="dextra" hidden>${extra}</div><button class="linkbtn rmore" onclick="const d=this.parentNode;const o=d.classList.toggle('open');d.querySelector('.dextra').hidden=!o;this.textContent=o?'Show less':'Read more'">Read more</button></div>`:''}
   ${ratingsBlock(m)}
   ${m.status==='watched' ? `<div class="myrate"><span>Your rating</span><div class="rate">${starsHtml}</div></div>` : ''}
-  ${scr.length?'<div id="dshows" style="font-weight:700;margin:14px 0 0;scroll-margin-top:12px">Showtimes</div><div class="srcline">Times from the official IFFI 2026 schedule</div>':''}
-  <div>${scr.length ? scr.map(s=>{
-    const st=dt(s), en=endOf(m,s), past=en<n;
-    return `<div class="scr" style="${past?'opacity:.55':''}">
-      <div><b>${fmtShort(st)}, ${fmtTime(st)}</b> <span style="color:var(--muted)">– ${fmtTime(en)}</span><br>
-        <span style="color:var(--muted);font-size:15px">📍 ${s.venue?(venueOf(s.venue)?`<a class="vlink" href="${venueURL(venueOf(s.venue))}" onclick="event.preventDefault();openVenue('${venueOf(s.venue).id}')">${esc(s.venue)}</a>`:`<a class="vlink" href="${mapUrl(s.venue)}" target="_blank" rel="noopener">${esc(s.venue)}</a>`):'Venue TBA'}${s.screen?' · '+esc(s.screen):''}${s.seat?' · Seat '+esc(s.seat):''}</span>
-        ${s.note?`<div class="snote">${esc(s.note)}</div>`:''}
-        <div>${s.going?'<span class="tag plan">Going</span>':''}${cl.has(s.id)?'<span class="tag clash">Clash</span>':''}${m.watchedAt===s.id?'<span class="tag booked">Watched here</span>':''}</div>${clashHtml(ci,s.id)}
-      </div>
-      <div class="acts" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${past
-        ? (m.status!=='watched'?`<button class="btn sm" onclick="quickWatched('${m.id}','${s.id}')">✓ Watched this</button>`:'')
-        : `<button class="btn sm" onclick="toggleS('${m.id}','${s.id}','going')">${s.going?'✓ Going':'+ Going'}</button>${s.going?`<button class="btn sm" onclick="addToCal('${m.id}','${s.id}')">📅 Add to calendar</button>`:''}`}</div>
-    </div>`;}).join('') : ''}</div>
   `, filmURL(m));
   fillCount(m);
 }
@@ -1610,6 +1678,7 @@ const _localSave = save;
 save = function(){ _localSave(); if(cloud.user && cloud.ready) pushSoon(); };
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden && cloud.t) pushNow(); });
 async function onUser(u){
+  let wasIn=!!cloud.user; try{ wasIn = wasIn || localStorage.getItem('fd-in')==='1'; }catch(e){}
   cloud.user=u; cloud.ready=false; if(cloud.unsub){ cloud.unsub(); cloud.unsub=null; }
   try{ if(u){ localStorage.setItem('fd-in','1'); localStorage.setItem('fd-was','1'); } else localStorage.removeItem('fd-in'); }catch(e){}
   signinLabel();
@@ -1617,7 +1686,7 @@ async function onUser(u){
     cloud.deleting=false; cloud.consent=null; clearLocalMarks(); try{ localStorage.removeItem(KEY+'-parked'); }catch(e){}
     updateCloudMenu(); return;
   }
-  if(!u){   // signed out: park any marks on this phone so they're hidden, and add them to the account at next sign-in
+  if(!u && wasIn){   // signed out (not a guest who never signed in): park any marks on this phone so they're hidden, and add them to the account at next sign-in
     const park={}; for(const m of db.movies){ if(isOfficial(m)){ const e=localMark(m); if(e) park[tkey(m)]=e; } else park['custom:'+tkey(m)]=clean(m); }
     if(Object.keys(park).length){ try{ const old=JSON.parse(localStorage.getItem(KEY+'-parked')||'{}'); localStorage.setItem(KEY+'-parked', JSON.stringify({...old,...park})); }catch(e){} clearLocalMarks(); }
   }
@@ -1729,6 +1798,13 @@ async function cloudToggle(){
     if(/popup-blocked|operation-not-supported|web-storage/.test(c)) alert('Sign-in window was blocked.\n\nOpen this site directly in Safari or Chrome (not inside WhatsApp or another app), allow pop-ups, and try again.');
     else if(!/popup-closed|cancelled-popup/.test(c)) toast('Sign-in failed: '+(c||e.message)); }
 }
+(function unparkGuest(){   // undo an old bug that hid guests' lists: give them back if this phone was never signed in
+  try{ if(localStorage.getItem('fd-was')==='1' || localStorage.getItem('fd-in')==='1') return;
+    const p=JSON.parse(localStorage.getItem(KEY+'-parked')||'null'); if(!p) return; let k=0;
+    for(const m of db.movies) if(isOfficial(m)){ const e=p[tkey(m)]; if(e && !localMark(m)){ setMark(m,e); k++; } }
+    for(const [key,v] of Object.entries(p)) if(key.startsWith('custom:') && v && !db.movies.some(m=>tkey(m)===tkey(v))){ db.movies.push(v); k++; }
+    localStorage.removeItem(KEY+'-parked'); if(k){ _localSave(); render(); }
+  }catch(e){} })();
 cloudStart();
 /* ---------- quick look: hover (desktop) / press-and-hold (phone) ---------- */
 function peekHtml(m){
