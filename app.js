@@ -217,7 +217,7 @@ function render(){
   const _hl=()=>document.querySelectorAll('#tabs a').forEach(b=>{ const on=b.dataset.v===(state.view==='fest'?'all':state.view); b.classList.toggle('on', on); if(on) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
   const n=now();
   const shows = hasShows(); document.body.classList.toggle('noshows', !shows);
-  if(!shows) state.now=false;
+  state.now=false;   // the Now filter was removed
   $('#n-mine').textContent = db.movies.filter(m=>m.status==='want').length;
   _hl();
   const v = {schedule:renderSchedule, mine:renderMine, fest:renderFest}[state.view] || (()=>renderGrid('all'));
@@ -375,7 +375,6 @@ function filterBar(extra='', right=''){
   const sel = ['genre','country','section','venue'].filter(k=>state[k]);
   const X = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   return `<div class="filters"><div class="frow">
-    ${hasShows()&&festOn()?`<button class="fpill now ${state.now?'set':''}" aria-pressed="${!!state.now}" onclick="state.now=!state.now;render()" title="Showing now or starting in the next 2 hours"><span class="dot"></span>Now</button>`:''}
     <button class="fpill" aria-haspopup="dialog" onclick="openFilters(this)"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Filters${sel.length?` · ${sel.length}`:''}</button>
     ${extra}
     ${sel.map(k=>`<button class="fpill set x" aria-label="Remove ${esc(state[k])}" onclick="state.${k}='';render()">${esc(k==='venue'?(venueById(state.venue)?.name||state.venue):state[k])}${X}</button>`).join('')}
@@ -1623,8 +1622,8 @@ function howtoHtml(){
         `<div class="hw-row"><span class="btn sm primary">✨ Pick my day</span><span class="btn sm">⇄ Swap</span><span class="btn sm">+ Going</span></div>`)}
       ${st(5,'📅','Fill the gaps','<b>My Plan</b> shows your day in order with travel in mind. Long breaks say how many films fit – tap <b>Find a film</b> to fill them. Save a whole day to your phone’s calendar, with a reminder an hour before each show.',
         `<div class="hw-plan"><div class="hw-pr"><b>9:15</b><span>Your first film · INOX Panaji</span></div><div class="pgap"><span><b>Free 11:05–13:30</b> · 2 h 25 min</span><span class="pg-b">Find a film · 5 fit ▾</span></div><div class="hw-pr"><b>13:30</b><span>Your next film · Samrat Ashok</span></div><span class="dcal">${IC.cal}Add day to calendar</span></div>`)}
-      ${st(6,'🎬','At the festival','Tap <b>Now</b> on Discover for films starting in the next 2 hours. After a show, tap <b>Mark watched</b> and give it stars – it moves to <b>My Festival › Watched</b>.',
-        `<div class="hw-row"><span class="fpill now"><span class="dot"></span>Now</span><span class="btn sm">✓ Watched this</span><span class="hw-stars">★★★★☆</span></div>`)}
+      ${st(6,'🎬','At the festival','Your next show and a countdown sit at the top of <b>My Plan</b>. After a show, tap <b>Mark watched</b> and give it stars – it moves to <b>My Festival › Watched</b>.',
+        `<div class="hw-row"><span class="btn sm">✓ Watched this</span><span class="hw-stars">★★★★☆</span></div>`)}
       ${st(7,'☁️','Sign in to keep it everywhere (optional)','Without an account your watchlist and plan stay on this phone. Sign in with Google to keep them on all your devices. Share your list with friends from <b>My Festival</b>.','')}
     </ol>
     <div class="hw-tips"><b>Good to know</b><ul>
