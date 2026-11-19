@@ -1893,6 +1893,20 @@ function closeSheet(fromBack){
   else if(fromBack!==true && history.state?.sheet) history.back();
 }
 if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')) navigator.serviceWorker.register('sw.js').catch(()=>{});
+/* a newer version published? offer a one-tap refresh (phones can hold on to a saved copy of the page) */
+let _upAt=0;
+function checkUpdate(){
+  const cur=(document.querySelector('script[src*="app.js?v="]')?.src.match(/[?&]v=(\w+)/)||[])[1];
+  if(!cur || !navigator.onLine || Date.now()-_upAt<5*60e3 || document.getElementById('upbar')) return; _upAt=Date.now();
+  fetch(ROOT+'?fdu='+Date.now(), {cache:'no-store'}).then(r=>r.ok?r.text():'').then(t=>{
+    const v=(t.match(/app\.js\?v=(\w+)/)||[])[1]; if(!v || v===cur) return;
+    const b=document.createElement('div'); b.id='upbar'; b.setAttribute('role','status');
+    b.innerHTML='<span><b>New version ready</b> · with the latest updates</span><button class="btn sm primary" onclick="location.reload()">Refresh</button><button class="up-x" aria-label="Later" onclick="this.parentNode.remove()">×</button>';
+    document.body.appendChild(b);
+  }).catch(()=>{});
+}
+setTimeout(checkUpdate, 4000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) checkUpdate(); });
 
 render();
 { const ver=officialVer();
