@@ -145,7 +145,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:16px}
   .sedit{grid-template-columns:1fr 1fr}
   .hero .poster{width:70px}
 }
-.guest .n,.guest .acts,.guest #addBtn,.guest .mineonly{display:none!important}
+.guest .n,.guest #addBtn,.guest .mineonly{display:none!important}
 .guestonly{display:none}.guest .guestonly{display:block}
 #signinBtn{display:none}.guest #signinBtn{display:inline-flex}
 .seg{flex:none;display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-left:auto}
