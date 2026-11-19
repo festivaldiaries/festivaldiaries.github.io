@@ -6,6 +6,9 @@ const DEFAULT_SECTIONS = ['International Competition','Best Debut Feature','ICFT
 /* Storage: the film list always comes from data.js; the phone keeps only your own marks (a few KB). */
 const _tk = t => String(t||'').trim().toLowerCase();
 const _sk = s => [s.date,s.time,s.venue].join('|');
+/* Official schedule revised 19 Nov 2026: screenings that moved. Old marks follow the film to its new slot. */
+const MOVED = {"the huntress": {"2026-11-25|16:30|INOX Panaji": "2026-11-23|12:15|INOX Panaji"}, "pray for us": {"2026-11-23|12:15|INOX Panaji": "2026-11-22|20:30|INOX Panaji"}, "paris, paris": {"2026-11-27|16:00|Ravindra Bhavan, Margao": "2026-11-27|13:00|Ravindra Bhavan, Margao"}, "salvation": {"2026-11-27|16:00|Samrat Ashok": "2026-11-27|16:30|Samrat Ashok"}, "nunkui": {"2026-11-22|20:30|INOX Panaji": "2026-11-25|16:30|INOX Panaji"}, "trainspotting": {"2026-11-21|16:00|Samrat Ashok": "2026-11-27|13:00|Samrat Ashok"}, "come with me": {"2026-11-27|16:30|Samrat Ashok": "2026-11-27|16:00|Samrat Ashok"}, "the shadow’s edge": {"2026-11-27|20:30|INOX Panaji": "2026-11-21|19:00|INOX Panaji"}, "hold onto me": {"2026-11-22|10:00|INOX Porvorim": "2026-11-22|10:00|Ravindra Bhavan, Margao"}, "ulya": {"2026-11-27|13:00|Samrat Ashok": "2026-11-21|16:00|Samrat Ashok"}, "heil jupiter": {"2026-11-21|19:00|INOX Panaji": "2026-11-27|20:30|INOX Panaji"}, "new home": {"2026-11-23|16:00|Ravindra Bhavan, Margao": "2026-11-23|16:30|Ravindra Bhavan, Margao"}, "krishnavataram part 1: the heart": {"2026-11-26|13:15|INOX Porvorim": "2026-11-26|13:30|INOX Porvorim"}, "urum": {"2026-11-22|17:15|INOX Porvorim": "2026-11-22|19:15|INOX Porvorim"}, "bhakta kannappa": {"2026-11-22|14:00|INOX Porvorim": "2026-11-22|16:15|INOX Porvorim"}, "kathar katha": {"2026-11-23|13:00|Ravindra Bhavan, Margao": "2026-11-23|13:30|Ravindra Bhavan, Margao"}, "surjyamukhi": {"2026-11-23|13:00|Ravindra Bhavan, Margao": "2026-11-23|13:30|Ravindra Bhavan, Margao"}, "shakuntala": {"2026-11-22|15:30|INOX Panaji": "2026-11-22|15:45|INOX Panaji"}, "carlos suara, the kid in the photo": {"2026-11-22|18:30|INOX Panaji": "2026-11-22|18:40|INOX Panaji"}, "too many beasts": {"2026-11-22|10:00|Ravindra Bhavan, Margao": "2026-11-22|10:00|INOX Porvorim"}, "amit atal": {"2026-11-26|16:15|INOX Porvorim": "2026-11-26|16:30|INOX Porvorim"}, "the hug of emptiness": {"2026-11-26|16:15|INOX Porvorim": "2026-11-26|16:30|INOX Porvorim"}, "the unseen holy river – saraswati": {"2026-11-26|16:15|INOX Porvorim": "2026-11-26|16:30|INOX Porvorim"}, "waqt": {"2026-11-27|13:00|Ravindra Bhavan, Margao": "2026-11-27|16:00|Ravindra Bhavan, Margao"}, "mog asum": {"2026-11-27|19:00|Ravindra Bhavan Open Lawns, Margao": "2026-11-22|19:00|Vagator Beach (Helipad)"}};
+function moveMarks(title,e){ const mv=MOVED[_tk(title)]; if(!mv||!e) return e; const r={...e}; if(e.s){ r.s={}; for(const k in e.s) r.s[mv[k]||k]=e.s[k]; } if(e.wa&&mv[e.wa]) r.wa=mv[e.wa]; return r; }
 const _slug = t => String(t||'').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 function officialVer(){ const t=window.__OFFICIAL||document.getElementById('official')?.textContent||''; return '5:'+t.length+':'+((t.match(/"fetched":"([^"]*)"/)||[])[1]||''); }
 function officialList(){ try{ return JSON.parse(window.__OFFICIAL||document.getElementById('official')?.textContent||'{}').movies||[]; }catch(e){ return []; } }
@@ -15,7 +18,7 @@ function fromCompact(d){
   const marks=d.marks||{}, ratings=d.ratings||{};
   const movies = officialList().map(o=>{
     const m = {rating:0, ...o, status:o.status||'none', id:'f-'+_slug(o.title), screenings:(o.screenings||[]).map(x=>({...x}))};
-    const e = marks[_tk(m.title)];
+    const e = moveMarks(m.title, marks[_tk(m.title)]);
     if(e){ for(const k of MARK_KEYS) if(e.f && e.f[k]!==undefined) m[k]=e.f[k];
       for(const x of m.screenings){ const r=e.s?.[_sk(x)]; if(r && (r.going||r.booked)) x.going=true; }
       if(e.wa) m.watchedAt = m.screenings.find(x=>_sk(x)===e.wa)?.id; }
@@ -1373,6 +1376,7 @@ function localMark(m){
   return Object.keys(e).length ? e : null;
 }
 function setMark(m,e){
+  e = moveMarks(m.title,e);
   for(const k of MARK_FIELDS){ const v=e?.f?.[k]; if(v===undefined){ if(k==='status') m.status='none'; else delete m[k]; } else m[k]=v; }
   for(const x of m.screenings||[]){ const r=e?.s?.[skey(x)]; x.going=!!(r?.going||r?.booked); x.booked=false; x.seat=''; }
   m.watchedAt = e?.wa ? (m.screenings||[]).find(x=>skey(x)===e.wa)?.id : undefined;
