@@ -452,7 +452,7 @@ function renderScheduleTime(){
   const hidden = state.showPast ? 0 : items.filter(x => x.end<=n).length;
   if(!state.showPast) items = items.filter(x => x.end>n);
 
-  let html = filterBar() + dayChipsHtml(days, today) + earlierLink(hidden);
+  let html = filterBar() + dayChipsHtml(days, today) + (state.day && dpDays().includes(state.day) ? dpCardHtml(state.day) : '') + earlierLink(hidden);
   const noFilter = !state.q && !state.tag && !state.now && !state.genre && !state.country && !state.section && !state.venue;
   const evs = noFilter ? EVENTS.filter(e => (state.showPast || evEnd(e)>n) && (!state.day || e.d===state.day)) : [];
   if(!items.length && !evs.length){
@@ -490,6 +490,7 @@ function renderPlan(){
       </div>
     </div>`;
   html += earlierLink(hidden);
+  if(dpDays().length) html += dpCardHtml();
   if(mine.length) html = guestNote() + html;
   if(!list.length){
     if(!db.movies.some(m=>m.status==='want'||m.status==='watched')) html += playNudge(); else html += `<div class="empty"><h3>Your plan is empty</h3>Open <b>All shows</b> and tap a showtime to add it here.<div style="margin-top:14px"><button class="btn primary" onclick="state.smode='time';render()">Browse all shows</button></div></div>`;
@@ -888,6 +889,7 @@ function tgResults(){
       ${x.m.status==='want'?'<span class="tg-saved" aria-label="In your watchlist">✓</span>':''}</button>${tgGoBtn(x.m)}</li>`).join('')}</ol>
     <div class="tg-acts">
       ${allIn?'<span class="tg-ok">✓ All in your watchlist</span>':`<button class="btn primary" onclick="tgSaveAll()">Save all 10 to my watchlist</button>`}
+      <button class="btn" onclick="openDayPick()">✨ Pick my day from these tastes</button>
       <button class="btn" onclick="tgShare()">${IC.share} Invite friends to play</button>
       ${G.p.length<TG_PAIRS.length?`<button class="btn" onclick="tgMore()">Sharpen it: 10 more pairs</button>`:''}
       <button class="linkbtn" onclick="openTaste()">Start over</button>
@@ -903,6 +905,145 @@ function tgGo(mid,sid){ const m=find(mid), s=m?.screenings.find(y=>y.id===sid); 
   s.going=!s.going; if(s.going && m.status!=='watched') m.status='want'; save(); render(); tgResults();
   const w = s.going && clashInfo().get(s.id);
   toast(w ? '⚠️ Clash: '+w[0]+(w.length>1?` (+${w.length-1} more)`:'') : s.going?(cloud.user?'Added to My Plan':'Added to My Plan on this phone · Sign in to keep it everywhere'):'Removed from My Plan'); }
+/* ---------- Pick my day: up to 6 shows on one day, matched to your taste, with no clashes ---------- */
+const DP_KEY='fd-day', DP_MAX=6;
+function dpLoad(){ try{ return JSON.parse(localStorage.getItem(DP_KEY)||'{}')||{}; }catch(e){ return {}; } }
+function dpStore(o){ try{ localStorage.setItem(DP_KEY, JSON.stringify(o)); }catch(e){} }
+let _dpSc=null;
+function dpScores(){   // film id -> how well it suits you: taste (This or That), watchlist, festival track record
+  const t=tgLoad(), p=t?.p||[], pal=t?tgPalette(p):null, rel={};
+  if(t) p.forEach((c,i)=>{ const r=TG_PAIRS[i]?.rel?.[c]; if(r) rel[r[0].toLowerCase()]=1; });
+  const out={};
+  for(const m of db.movies){
+    if(!isOfficial(m) || m.status==='watched' || (+m.runtime||99)<40) continue;
+    let s=0; const parts=[];
+    if(pal){ const v=tgVec(m); for(const d in pal){ const c=pal[d]*(v[d]||0)*TG_W(d); s+=c; if(c>0 && !TG_REGION.has(d) && TG_DIAL[d][(v[d]>0)?0:1]) parts.push([c,d,v[d]>0?0:1]); } if(rel[m.title.toLowerCase()]) s+=1.2; }
+    const fest=(String(m.festivals||'').match(/Cannes|Venice|Berlin|Tor+onto|TIFF|Sundance|Locarno|Rotterdam|San Sebasti|Karlovy|Busan/gi)||[]).length;
+    s += (m.acc?.8:0) + Math.min(fest,4)*.15 + (m.status==='want'?1.5:0);
+    out[m.id]={s, parts:parts.sort((a,b)=>b[0]-a[0]), fest};
+  }
+  return _dpSc=out;
+}
+const dpGap = (a,b) => { const [x,y]=a.start<=b.start?[a,b]:[b,a]; return {x,y,gap:Math.round((y.start-x.end)/60000), need:travelMin(venueOf(x.s.venue),venueOf(y.s.venue))}; };
+const dpFits = (a,b) => a.m.id!==b.m.id && (({gap,need})=>gap>=need)(dpGap(a,b));
+function dpCands(date, skip=[]){
+  const n=now(), sc=_dpSc||dpScores();
+  const elsewhere=new Set(allScreenings().filter(x=>x.s.going && localISO(x.start)!==date).map(x=>x.m.id));
+  return allScreenings().filter(x=>localISO(x.start)===date && x.start>n && sc[x.m.id] && !skip.includes(x.m.id) && !elsewhere.has(x.m.id));
+}
+function dpBuild(date, skip=[], keep=[]){
+  dpScores();
+  let C=dpCands(date, skip).sort((a,b)=>a.start-b.start);
+  const force=new Set([...keep, ...C.filter(x=>x.s.going).map(x=>x.s.id)]);
+  const val = x => 4 + _dpSc[x.m.id].s + (force.has(x.s.id)?100:0);
+  const hop = (a,b) => { const va=venueOf(a.s.venue), vb=venueOf(b.s.venue); return va&&vb&&va.g!==vb.g ? 1+travelMin(va,vb)/30 : 0; };
+  for(let tries=0; tries<6; tries++){
+    const N=C.length, best=[], prev=[];
+    let top=null;
+    for(let i=0;i<N;i++){ best[i]=[]; prev[i]=[]; best[i][1]=val(C[i]); prev[i][1]=-1;
+      for(let k=2;k<=DP_MAX;k++){ let bv=-Infinity, bj=-1;
+        for(let j=0;j<i;j++){ if(best[j][k-1]===undefined || !dpFits(C[j],C[i])) continue; const v=best[j][k-1]+val(C[i])-hop(C[j],C[i]); if(v>bv){ bv=v; bj=j; } }
+        if(bj>=0){ best[i][k]=bv; prev[i][k]=bj; } }
+      for(let k=1;k<=DP_MAX;k++) if(best[i][k]!==undefined && (!top || best[i][k]>top.v)) top={i,k,v:best[i][k]}; }
+    if(!top) return [];
+    const pick=[]; for(let i=top.i,k=top.k; i>=0 && k>=1; i=prev[i][k], k--) pick.unshift(C[i]);
+    const seen=new Map(), dup=pick.find(x=>{ if(seen.has(x.m.id)) return true; seen.set(x.m.id,1); });
+    if(!dup) return pick.map(x=>x.s.id);
+    C=C.filter(x=>x!==dup);   // the same film twice in one day: drop the later showing and try again
+  }
+  return [];
+}
+function dpCardHtml(d){ const lab = d ? new Date(d+'T12:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short'}) : '';
+  return `<button class="dpcard" onclick="openDayPick(${d?`'${d}'`:''})"><span>✨</span><span><b>Pick my day${d?' · '+esc(lab):''}</b>Up to ${DP_MAX} shows matched to your taste, with no clashes</span><span class="btn sm primary">Pick</span></button>`; }
+const dpItem = id => allScreenings().find(x=>x.s.id===id);
+function dpDays(){ const n=now(), today=localISO(n); return [...new Set(allScreenings().filter(x=>x.start>n && x.m.status!=='watched').map(x=>localISO(x.start)))].filter(d=>d>=today && new Set(dpCands(d).map(x=>x.m.id)).size>=2).sort(); }
+function dpWhy(x, used={}){
+  const sc=_dpSc?.[x.m.id];
+  if(x.s.going) return 'Already in your plan';
+  if(x.m.status==='want') return 'In your watchlist';
+  const c=(sc?.parts||[]).filter(q=>q[1]!=='length'), fresh=c.filter(q=>(used[q[1]]||0)<2), pk=(fresh.length>=2?fresh:c).slice(0,2);
+  if(pk.length && tgLoad()){ pk.forEach(q=>used[q[1]]=(used[q[1]]||0)+1); return 'Leans '+pk.map(q=>TG_DIAL[q[1]][q[2]].toLowerCase()).join(' and '); }
+  if(x.m.acc) return 'Festival favourite';
+  if(sc?.fest) return 'Played major festivals';
+  return 'A wildcard for the day';
+}
+function dpLeg(a,b){   // the break between two picks, and how to get there
+  const {gap,need}=dpGap(a,b), va=venueOf(a.s.venue), vb=venueOf(b.s.venue);
+  const brk = gap>=60 ? `${Math.floor(gap/60)} h${gap%60?' '+gap%60+' min':''} break` : `${gap} min break`;
+  const move = !va||!vb||va.id===vb.id ? 'same venue' : kmBetween(va,vb)<1.2 ? `short walk to ${vb.name}` : `~${need} min to ${vb.name} (${Math.max(1,Math.round(kmBetween(va,vb)*1.4))} km)`;
+  return `<div class="dp-leg">${brk} · ${esc(move)}</div>`;
+}
+function openDayPick(date){
+  const days=dpDays();
+  if(!days.length){ toast('No more festival days with shows left'); return; }
+  if(!date || !days.includes(date)) date = days.includes(state.day) ? state.day : days[0];
+  dpScores();
+  const all=dpLoad(); let rec=all[date];
+  const valid = rec && rec.ids.every(id=>{ const x=dpItem(id); return x && x.start>now(); });
+  if(!valid){ rec={ids:dpBuild(date, rec?.skip||[]), skip:rec?.skip||[]}; all[date]=rec; dpStore(all); }
+  const items=rec.ids.map(dpItem).filter(Boolean).sort((a,b)=>a.start-b.start), used={};
+  const inPlan=items.filter(x=>x.s.going).length, toAdd=items.length-inPlan;
+  const chip = d => { const dd=new Date(d+'T12:00'); return `<button class="chip ${d===date?'on':''}" onclick="openDayPick('${d}')">${d===localISO(now())?'Today':dd.toLocaleDateString('en-IN',{weekday:'short',day:'numeric'})}</button>`; };
+  const fill = dpAlts(date, null).length && items.length<DP_MAX;
+  openModal(`<div class="dp">
+    <h2>Pick my day</h2>
+    <p class="tg-sub">Up to ${DP_MAX} shows for one day, chosen for your taste, with time to get between venues. Swap or remove any of them.</p>
+    <div class="chips dp-days">${days.map(chip).join('')}</div>
+    ${tgLoad()?'':`<div class="dp-note">Picks are based on your watchlist and festival favourites. <button class="linkbtn" onclick="openTaste()">Play This or That</button> (2 min) to match them to your taste.</div>`}
+    ${items.length ? `<ol class="dp-list">${items.map((x,i)=>`${i?dpLeg(items[i-1],x):''}<li id="dp-${x.s.id}">
+      <div class="dp-row" onclick="openDetail('${x.m.id}')">
+        <span class="dp-time"><b>${fmtTime(x.start)}</b><small>– ${fmtTime(x.end)}</small></span>
+        <span class="tg-mini">${poster(x.m,true)}</span>
+        <span class="tg-li"><b>${esc(x.m.title)}</b><small>📍 ${esc(venueOf(x.s.venue)?.name||x.s.venue||'')}${x.s.screen?' · '+esc(x.s.screen):''} · ${runtime(x.m)} min</small><span class="tg-why">${esc(dpWhy(x,used))}</span></span>
+      </div>
+      <div class="dp-acts">${x.s.going?'<span class="dp-in">✓ In My Plan</span>':''}<button class="btn sm" onclick="dpSwapOpen('${date}','${x.s.id}')">⇄ Swap</button><button class="btn sm" onclick="dpRemove('${date}','${x.s.id}')">Remove</button></div>
+      <div class="dp-alts" hidden></div>
+    </li>`).join('')}</ol>` : `<div class="empty"><h3>Nothing fits this day</h3>Try another day, or <button class="linkbtn" onclick="dpReset('${date}')">start this day again</button>.</div>`}
+    ${fill?`<button class="btn dp-add" onclick="dpSwapOpen('${date}','')">+ Add another film</button><div id="dp-addalts" class="dp-alts" hidden></div>`:''}
+    <div class="tg-acts">
+      ${toAdd?`<button class="btn primary" onclick="dpAddAll('${date}')">Add ${toAdd===items.length?'all '+toAdd:toAdd+' more'} to My Plan</button>`:items.length?'<span class="tg-ok">✓ All in My Plan</span>':''}
+      <button class="linkbtn" onclick="dpReset('${date}')">Start this day again</button>
+    </div>
+  </div>`);
+}
+function dpAlts(date, sid){   // other shows that day that fit around the rest of the picks
+  const rec=dpLoad()[date]; if(!rec) return [];
+  const others=rec.ids.filter(id=>id!==sid).map(dpItem).filter(Boolean);
+  const used=new Set(others.map(x=>x.m.id).concat(sid?[dpItem(sid)?.m.id]:[]));
+  return dpCands(date, rec.skip).filter(x=>!used.has(x.m.id) && others.every(o=>dpFits(o,x)))
+    .sort((a,b)=>(_dpSc[b.m.id]?.s||0)-(_dpSc[a.m.id]?.s||0)).slice(0,8);
+}
+function dpSwapOpen(date, sid){
+  dpScores();
+  const box = sid ? document.querySelector(`#dp-${CSS.escape(sid)} .dp-alts`) : document.getElementById('dp-addalts');
+  if(!box) return;
+  if(!box.hidden){ box.hidden=true; return; }
+  document.querySelectorAll('.dp-alts').forEach(b=>b.hidden=true);
+  const alts=dpAlts(date, sid);
+  box.innerHTML = alts.length ? `<div class="dp-alts-h">${sid?'Swap for':'Add'} one of these – they fit around your other picks:</div>`+alts.map(x=>`<button class="dp-alt" onclick="dpPick('${date}','${sid}','${x.s.id}')"><b>${fmtTime(x.start)}–${fmtTime(x.end)}</b> ${esc(x.m.title)}<small>📍 ${esc(venueOf(x.s.venue)?.name||x.s.venue||'')} · ${runtime(x.m)} min · ${esc(dpWhy(x))}</small></button>`).join('')
+    : `<div class="dp-alts-h">Nothing else fits around your other picks${sid?'. Remove one of them to free up time.':'.'}</div>`;
+  box.hidden=false;
+}
+function dpPick(date, oldId, newId){
+  const all=dpLoad(), rec=all[date]; if(!rec) return;
+  rec.ids = oldId ? rec.ids.map(id=>id===oldId?newId:id) : rec.ids.concat(newId);
+  if(oldId){ const om=dpItem(oldId)?.m.id; if(om && !rec.skip.includes(om)) rec.skip.push(om); }
+  dpStore(all); openDayPick(date);
+}
+function dpRemove(date, sid){
+  const all=dpLoad(), rec=all[date]; if(!rec) return;
+  const x=dpItem(sid); rec.ids=rec.ids.filter(id=>id!==sid); if(x && !rec.skip.includes(x.m.id)) rec.skip.push(x.m.id);
+  dpStore(all); openDayPick(date);
+  if(x?.s.going) toast('Removed from this shortlist – it’s still in My Plan');
+}
+function dpReset(date){ const all=dpLoad(); delete all[date]; dpStore(all); openDayPick(date); }
+function dpAddAll(date){
+  const rec=dpLoad()[date]; if(!rec) return;
+  let k=0; for(const id of rec.ids){ const x=dpItem(id); if(x && !x.s.going){ x.s.going=true; if(x.m.status==='none') x.m.status='want'; k++; } }
+  save(); render(); openDayPick(date);
+  const c=clashInfo(); const bad=rec.ids.find(id=>c.has(id));
+  toast(bad ? '⚠️ Added – but '+c.get(bad)[0] : `Added ${k} show${k>1?'s':''} to My Plan`);
+}
 function tgSaveAll(after){
   const saved=tgLoad(); if(saved) G.p=saved.p.slice();
   let n=0; for(const x of tgRecommend(G.p).list) if(x.m.status==='none'||!x.m.status){ x.m.status='want'; n++; }
