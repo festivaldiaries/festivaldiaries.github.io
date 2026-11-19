@@ -546,7 +546,7 @@ function renderCalendar(){
       if(!prev || x.end>prev.end) prev=x;
     }
     const blocks = items.map(x=>{ const L=lane.get(x), c=cl.has(x.s.id), v=venueOf(x.s.venue);
-      return `<button class="tl-ev ${c?'clash':''} ${x.end<=n?'past':''}" style="top:${Y(x.start)};height:${H(Math.max(34,mins(x.end)-mins(x.start)))};left:calc(${L.l} * 100% / ${L.k});width:calc(100% / ${L.k} - 4px)" onclick="openDetail('${x.m.id}')" aria-label="${esc(`${fmtTime(x.start)} to ${fmtTime(x.end)}, ${x.m.title}, ${v?.name||x.s.venue||''}${c?'. Clash: '+ci.get(x.s.id)[0]:''}`)}"><small class="tl-tm">${fmtTime(x.start)}–${fmtTime(x.end)}</small><b>${esc(x.m.title)}</b><small>📍 ${esc(v?.name||x.s.venue||'Venue TBA')}${x.s.screen?' · '+esc(x.s.screen):''}</small>${c?(w=>`<small class="tl-w">⚠ ${w?`${w.far?'Too far from':w.gap<0?'Overlaps':'Too tight with'} ${esc(w.y.m.title)}`:'Clash'}</small>`)(wouldClash(x, items.filter(y=>y!==x))):''}</button>`; }).join('');
+      return `<div class="tl-ev ${c?'clash':''} ${x.end<=n?'past':''} ${L.k>1?'narrow':''}" role="button" tabindex="0" data-pid="${x.m.id}" style="top:${Y(x.start)};height:${H(Math.max(34,mins(x.end)-mins(x.start)))};left:calc(${L.l} * 100% / ${L.k});width:calc(100% / ${L.k} - 4px)" onclick="openDetail('${x.m.id}')" aria-label="${esc(`${fmtTime(x.start)} to ${fmtTime(x.end)}, ${x.m.title}, ${v?.name||x.s.venue||''}${c?'. Clash: '+ci.get(x.s.id)[0]:''}`)}"><small class="tl-tm">${fmtTime(x.start)}–${fmtTime(x.end)}</small><b>${esc(x.m.title)}</b><small>📍 ${esc(v?.name||x.s.venue||'Venue TBA')}${x.s.screen?' · '+esc(x.s.screen):''}</small>${c?(w=>`<small class="tl-w">⚠ ${w?`${w.far?'Too far from':w.gap<0?'Overlaps':'Too tight with'} ${esc(w.y.m.title)}`:'Clash'}</small>`)(wouldClash(x, items.filter(y=>y!==x))):''}${x.end>n?`<span class="tl-acts"><button class="tl-b" onclick="event.stopPropagation();swapOpen('${x.s.id}')" aria-label="Swap ${esc(x.m.title)} for another film" title="Swap for a film that fits this slot">⇄<span> Swap</span></button><button class="tl-b x" onclick="event.stopPropagation();planRemove('${x.s.id}')" aria-label="Remove ${esc(x.m.title)} from My Plan" title="Remove from My Plan">${IC.x}</button></span>`:''}</div>`; }).join('');
     const nowLine = d===today && mins(n)>base && mins(n)<h1*60 ? `<div class="tl-now" style="top:${Y(n)}"><span>${fmtTime(n)}</span></div>` : '';
     html += `<div class="tl" style="height:${H((h1-h0)*60)}"><div class="tl-grid">${grid}</div><div class="tl-col">${gaps}${blocks}${nowLine}</div></div>`;
     if(d>=today) html += `<button class="btn tl-more" onclick="state.day='${d}';state.smode='time';window.scrollTo(0,0);render()">+ Add more shows on ${short}</button>`;
@@ -554,6 +554,40 @@ function renderCalendar(){
   const todo = mineGroups().todo.length;
   if(todo) html += `<button class="todo-card" onclick="state.mineTab='todo';persistUI();setView('mine')"><span class="tc-n">${todo}</span><span><b>saved film${todo>1?'s':''} still need${todo>1?'':'s'} a showtime</b>Pick times for ${todo>1?'them':'it'} in My Shortlist</span><span aria-hidden="true" class="tc-go">›</span></button>`;
   return html;
+}
+/* swap a planned show: films that fit the freed slot (between your show before and after it), nearest in time first */
+function slotFits(x){
+  const n=now(), d=localISO(x.start), all=allScreenings(), plan=all.filter(y=>y.s.going && y.m.status!=='watched' && localISO(y.start)===d && y!==x);
+  const prev=plan.filter(y=>y.end<=x.start).sort((a,b)=>b.end-a.end)[0], next=plan.filter(y=>y.start>=x.end).sort((a,b)=>a.start-b.start)[0];
+  const pf=new Set(all.filter(y=>y.s.going).map(y=>y.m.id));
+  const list=all.filter(y=>localISO(y.start)===d && y.start>n && y.m.status!=='watched' && !pf.has(y.m.id) && (+y.m.runtime||99)>=40 && (!prev || (y.start>=prev.end && dpFits(prev,y))) && (!next || (y.end<=next.start && dpFits(y,next))));
+  const ok=new Set(list.map(y=>y.m.id)), others=plan;   // nearby films that would clash with the show before or after
+  const near=all.filter(y=>localISO(y.start)===d && y.start>n && y.m.status!=='watched' && !pf.has(y.m.id) && !ok.has(y.m.id) && (+y.m.runtime||99)>=40 && Math.abs(y.start-x.start)<=2*3600e3).map(y=>({y, w:wouldClash(y, others)})).filter(o=>o.w);
+  return {prev, next, list, near};
+}
+function swapOpen(sid){
+  const x=allScreenings().find(y=>y.s.id===sid); if(!x) return;
+  const {prev,next,list,near}=slotFits(x), sc=dpScores(), used={}, seen=new Set(), seen2=new Set();
+  const nr=near.sort((a,b)=>Math.abs(a.y.start-x.start)-Math.abs(b.y.start-x.start)).filter(o=>!seen2.has(o.y.m.id) && seen2.add(o.y.m.id)).slice(0,6).sort((a,b)=>a.y.start-b.y.start);
+  const f=list.sort((a,b)=>Math.abs(a.start-x.start)-Math.abs(b.start-x.start) || (sc[b.m.id]?.s||0)-(sc[a.m.id]?.s||0)).filter(y=>!seen.has(y.m.id) && seen.add(y.m.id)).slice(0,10).sort((a,b)=>a.start-b.start);
+  const win = `${prev?`after <b>${esc(prev.m.title)}</b> (ends ${fmtTime(prev.end)})`:'from the morning'} ${next?`and before <b>${esc(next.m.title)}</b> (${fmtTime(next.start)})`:'until the evening'}`;
+  openModal(`<div class="gapm swapm"><h2>Swap ${esc(x.m.title)}</h2>
+    <div class="sw-cur"><b>${fmtTime(x.start)}–${fmtTime(x.end)}</b> · ${esc(venueOf(x.s.venue)?.name||x.s.venue||'')} · ${fmtShort(x.start)}</div>
+    <p class="tg-sub">${f.length?`Films that fit ${win}, with time to get there. Closest to this slot first.`:`Nothing else fits ${win}.`}</p>
+    <div class="pg-l">${f.map(y=>{ const same=y.start<x.end && y.end>x.start;
+      return `<div class="pg-o"><button class="pg-f" onclick="openDetail('${y.m.id}')"><b>${fmtTime(y.start)}–${fmtTime(y.end)}${same?' <span class="sw-same">Same slot</span>':''}</b><span>${esc(y.m.title)}</span><small>📍 ${esc(venueOf(y.s.venue)?.name||y.s.venue||'')}${y.s.screen?' · '+esc(y.s.screen):''} · ${runtime(y.m)} min · ${esc(dpWhy(y,used))}</small></button><button class="btn sm primary" onclick="swapTo('${x.s.id}','${y.m.id}','${y.s.id}')">Swap in</button></div>`; }).join('')}</div>
+    ${nr.length?`<h3 class="sw-h">Around this time – would clash with your plan</h3><div class="pg-l">${nr.map(({y,w})=>`<div class="pg-o sw-cl"><button class="pg-f" onclick="openDetail('${y.m.id}')"><b>${fmtTime(y.start)}–${fmtTime(y.end)}</b><span>${esc(y.m.title)}</span><small>📍 ${esc(venueOf(y.s.venue)?.name||y.s.venue||'')} · ${runtime(y.m)} min</small><small class="dp-c">⚠ ${w.far?'Too far from':w.gap<0?'Overlaps':'Too tight with'} ${esc(w.y.m.title)} (${fmtTime(w.y.start)})</small></button><button class="btn sm" onclick="swapTo('${x.s.id}','${y.m.id}','${y.s.id}')">Swap in</button></div>`).join('')}</div>`:''}
+    <div class="tg-acts"><button class="btn" onclick="closeModal(true);planRemove('${x.s.id}')">${IC.x} Remove ${esc(x.m.title)} instead</button></div></div>`);
+}
+function swapTo(oldSid, mid, sid){
+  const o=allScreenings().find(y=>y.s.id===oldSid), m=find(mid), s=m?.screenings.find(y=>y.id===sid); if(!o||!s) return;
+  o.s.going=false; s.going=true; if(!m.status||m.status==='none') m.status='want';
+  save(); closeModal(true); render();
+  toast(`Swapped: ${o.m.title} → ${m.title}`);
+}
+function planRemove(sid){
+  const x=allScreenings().find(y=>y.s.id===sid); if(!x) return;
+  x.s.going=false; save(); render(); toast(`Removed ${x.m.title} from My Plan`);
 }
 function gapModal(aid, bid){   // films that fit in a free slot of your plan
   const A=allScreenings(), a=A.find(x=>x.s.id===aid), b=A.find(x=>x.s.id===bid); if(!a||!b) return;
