@@ -481,6 +481,13 @@ h2.day.sub{margin-top:26px}
 .dp-add{margin-top:10px;width:100%}
 .dpcard{display:flex;align-items:center;gap:12px;border:1px solid var(--brand-line);background:var(--brand-tint);border-radius:12px;padding:10px 12px;margin:10px 0;cursor:pointer;width:100%;text-align:left;color:var(--text);font-size:14.5px}
 .dpcard b{display:block;font-size:15.5px}.dpcard .btn{margin-left:auto}
+.dp-mode{margin:10px 0 4px}
+.dp-areas{flex-wrap:wrap;align-items:center;margin:2px 0 6px}.dp-lab{font-size:13.5px;color:var(--muted);margin-right:2px}.dp-areas small{opacity:.7;margin-left:3px}
+.dp-sum{font-size:14px;margin:8px 0 2px;color:var(--muted)}.dp-sum b{color:var(--green)}
+.dp-list.best{gap:8px}.dp-list li.clash{border-left:3px solid var(--red)}.dp-list li.in{border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green)}
+.dp-list li .pwarn{margin:6px 2px 0}
+.btn.dp-on{background:var(--green);border-color:var(--green);color:#fff}
+.dp-alt .dp-c{color:var(--red)}.dp-alt .dp-ok{color:var(--green)}
 .tg-acts{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin-top:14px}.tg-acts .linkbtn{align-self:center}.tg-ok{text-align:center;color:var(--green);font-weight:600}
 .tg-back{display:block;margin:-4px 0 8px}
 .tg-introic{display:inline-flex;width:52px;height:52px;border-radius:14px;background:var(--brand-tint);color:var(--green);align-items:center;justify-content:center;margin-bottom:8px}.tg-intro .btn,.tg-half .btn{display:block;width:100%;max-width:320px;margin:8px auto 0}

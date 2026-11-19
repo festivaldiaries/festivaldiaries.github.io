@@ -926,6 +926,7 @@ function dpScores(){   // film id -> how well it suits you: taste (This or That)
 }
 const dpGap = (a,b) => { const [x,y]=a.start<=b.start?[a,b]:[b,a]; return {x,y,gap:Math.round((y.start-x.end)/60000), need:travelMin(venueOf(x.s.venue),venueOf(y.s.venue))}; };
 const dpFits = (a,b) => a.m.id!==b.m.id && (({gap,need})=>gap>=need)(dpGap(a,b));
+function dpCandsA(date, skip=[]){ const a=dpArea(date); return dpCands(date, skip).filter(x=>dpAreaOf(x)===a); }
 function dpCands(date, skip=[]){
   const n=now(), sc=_dpSc||dpScores();
   const elsewhere=new Set(allScreenings().filter(x=>x.s.going && localISO(x.start)!==date).map(x=>x.m.id));
@@ -933,7 +934,7 @@ function dpCands(date, skip=[]){
 }
 function dpBuild(date, skip=[], keep=[]){
   dpScores();
-  let C=dpCands(date, skip).sort((a,b)=>a.start-b.start);
+  let C=dpCandsA(date, skip).sort((a,b)=>a.start-b.start);
   const force=new Set([...keep, ...C.filter(x=>x.s.going).map(x=>x.s.id)]);
   const val = x => 4 + _dpSc[x.m.id].s + (force.has(x.s.id)?100:0);
   const hop = (a,b) => { const va=venueOf(a.s.venue), vb=venueOf(b.s.venue); return va&&vb&&va.g!==vb.g ? 1+travelMin(va,vb)/30 : 0; };
@@ -954,7 +955,7 @@ function dpBuild(date, skip=[], keep=[]){
   return [];
 }
 function dpCardHtml(d){ const lab = d ? new Date(d+'T12:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short'}) : '';
-  return `<button class="dpcard" onclick="openDayPick(${d?`'${d}'`:''})"><span>✨</span><span><b>Pick my day${d?' · '+esc(lab):''}</b>Up to ${DP_MAX} shows matched to your taste, with no clashes</span><span class="btn sm primary">Pick</span></button>`; }
+  return `<button class="dpcard" onclick="openDayPick(${d?`'${d}'`:''})"><span>✨</span><span><b>Pick my day${d?' · '+esc(lab):''}</b>The day’s best films for your taste – choose yours, clashes marked</span><span class="btn sm primary">Pick</span></button>`; }
 const dpItem = id => allScreenings().find(x=>x.s.id===id);
 function dpDays(){ const n=now(), today=localISO(n); return [...new Set(allScreenings().filter(x=>x.start>n && x.m.status!=='watched').map(x=>localISO(x.start)))].filter(d=>d>=today && new Set(dpCands(d).map(x=>x.m.id)).size>=2).sort(); }
 function dpWhy(x, used={}){
@@ -973,44 +974,85 @@ function dpLeg(a,b){   // the break between two picks, and how to get there
   const move = !va||!vb||va.id===vb.id ? 'same venue' : kmBetween(va,vb)<1.2 ? `short walk to ${vb.name}` : `~${need} min to ${vb.name} (${Math.max(1,Math.round(kmBetween(va,vb)*1.4))} km)`;
   return `<div class="dp-leg">${brk} · ${esc(move)}</div>`;
 }
+const DP_BEST=7;
+const DP_AREAS = [['pan','Panaji & Porvorim',['pan','por']],['mar','Margao',['mar']],['pon','Ponda',['pon']],['nor','North Goa beaches',['nor']]];
+const dpAreaOf = x => { const g=venueOf(x.s.venue)?.g; return (DP_AREAS.find(a=>a[2].includes(g))||[])[0]; };
+function dpArea(date){ if(state.dpArea) return state.dpArea; const go=allScreenings().find(x=>x.s.going && localISO(x.start)===date); return (go && dpAreaOf(go)) || 'pan'; }
+const dpMode = () => state.dpMode==='fit' ? 'fit' : 'best';
+const dpKey = d => d+'|'+dpMode()+'|'+dpArea(d);
+function dpBuildBest(date, skip=[]){   // the day's top films by your taste – clashes allowed, so you can choose
+  dpScores();
+  const C=dpCandsA(date, skip), by={};
+  for(const x of C) (by[x.m.id] ||= []).push(x);
+  const films=Object.keys(by).sort((p,q)=>{ const g=id=>by[id].some(x=>x.s.going)?100:0; return (g(q)+_dpSc[q].s)-(g(p)+_dpSc[p].s); }).slice(0,DP_BEST);
+  const out=[];
+  for(const id of films){   // if a film shows twice that day, take the showing that clashes least with the ones above it
+    const opts=by[id]; const go=opts.find(x=>x.s.going);
+    out.push(go || opts.map(x=>[x, out.filter(o=>!dpFits(o,x)).length]).sort((p,q)=>p[1]-q[1])[0][0]);
+  }
+  return out.map(x=>x.s.id);
+}
+function dpClash(x, items){   // the other picks this one can't be combined with
+  const out=[];
+  for(const y of items){ if(y===x) continue;
+    const {gap,need}=dpGap(x,y); if(gap>=need) continue;
+    const vx=venueOf(x.s.venue), vy=venueOf(y.s.venue), far = gap>=0 && vx && vy && vx.id!==vy.id && kmBetween(vx,vy)>=1.2;
+    out.push(`${y.m.title} (${fmtTime(y.start)}${y.s.going?', in your plan':''}${gap>=0?(far?`, too far – ${vy.name} is ~${need} min away`:', too little time between'):''})`);
+  }
+  return out;
+}
 function openDayPick(date){
   const days=dpDays();
   if(!days.length){ toast('No more festival days with shows left'); return; }
   if(!date || !days.includes(date)) date = days.includes(state.day) ? state.day : days[0];
   dpScores();
-  const all=dpLoad(); let rec=all[date];
+  const mode=dpMode(), key=dpKey(date), all=dpLoad(); let rec=all[key];
   const valid = rec && rec.ids.every(id=>{ const x=dpItem(id); return x && x.start>now(); });
-  if(!valid){ rec={ids:dpBuild(date, rec?.skip||[]), skip:rec?.skip||[]}; all[date]=rec; dpStore(all); }
+  if(!valid){ rec={ids: mode==='fit' ? dpBuild(date, rec?.skip||[]) : dpBuildBest(date, rec?.skip||[]), skip:rec?.skip||[]}; all[key]=rec; dpStore(all); }
   const items=rec.ids.map(dpItem).filter(Boolean).sort((a,b)=>a.start-b.start), used={};
   const inPlan=items.filter(x=>x.s.going).length, toAdd=items.length-inPlan;
-  const chip = d => { const dd=new Date(d+'T12:00'); return `<button class="chip ${d===date?'on':''}" onclick="openDayPick('${d}')">${d===localISO(now())?'Today':dd.toLocaleDateString('en-IN',{weekday:'short',day:'numeric'})}</button>`; };
-  const fill = dpAlts(date, null).length && items.length<DP_MAX;
+  const chip = d => { const dd=new Date(d+'T12:00'); return `<button class="chip ${d===date?'on':''}" onclick="state.dpArea='';openDayPick('${d}')">${d===localISO(now())?'Today':dd.toLocaleDateString('en-IN',{weekday:'short',day:'numeric'})}</button>`; };
+  const nClash = mode==='best' ? items.filter(x=>dpClash(x,items).length).length : 0;
+  const fill = items.length<(mode==='fit'?DP_MAX:DP_BEST) && dpAlts(date, null).length;
   openModal(`<div class="dp">
     <h2>Pick my day</h2>
-    <p class="tg-sub">Up to ${DP_MAX} shows for one day, chosen for your taste, with time to get between venues. Swap or remove any of them.</p>
+    <div class="mseg dp-mode" role="tablist"><button role="tab" aria-selected="${mode==='best'}" class="${mode==='best'?'on':''}" onclick="state.dpMode='best';openDayPick('${date}')">Best ${DP_BEST} · choose yours</button><button role="tab" aria-selected="${mode==='fit'}" class="${mode==='fit'?'on':''}" onclick="state.dpMode='fit';openDayPick('${date}')">No clashes</button></div>
+    <p class="tg-sub">${mode==='best' ? `The day’s ${DP_BEST} best matches for your taste. Some clash – they’re marked, so you can choose the ones you’ll go to and tap <b>+ Going</b>.` : `Up to ${DP_MAX} shows that all fit in one day, with time to get between venues.`}</p>
     <div class="chips dp-days">${days.map(chip).join('')}</div>
+    ${(()=>{ const n={}; for(const x of dpCands(date)) { const a=dpAreaOf(x); if(a) (n[a] ||= new Set()).add(x.m.id); } const av=DP_AREAS.filter(a=>(n[a[0]]?.size||0)>=2);
+      return av.length>1 ? `<div class="chips dp-areas"><span class="dp-lab">Area:</span>${av.map(a=>`<button class="chip ${dpArea(date)===a[0]?'on':''}" onclick="state.dpArea='${a[0]}';openDayPick('${date}')">${a[1]} <small>${n[a[0]].size}</small></button>`).join('')}</div>` : ''; })()}
     ${tgLoad()?'':`<div class="dp-note">Picks are based on your watchlist and festival favourites. <button class="linkbtn" onclick="openTaste()">Play This or That</button> (2 min) to match them to your taste.</div>`}
-    ${items.length ? `<ol class="dp-list">${items.map((x,i)=>`${i?dpLeg(items[i-1],x):''}<li id="dp-${x.s.id}">
+    ${mode==='best' && items.length ? `<div class="dp-sum">${inPlan?`<b>${inPlan} in My Plan</b> · `:''}${nClash?`${nClash} of ${items.length} clash with another pick`:'None of these clash'}</div>`:''}
+    ${items.length ? `<ol class="dp-list ${mode}">${items.map((x,i)=>{ const cl = mode==='best' ? dpClash(x,items) : [];
+      return `${mode==='fit'&&i?dpLeg(items[i-1],x):''}<li id="dp-${x.s.id}" class="${cl.length?'clash':''} ${x.s.going?'in':''}">
       <div class="dp-row" onclick="openDetail('${x.m.id}')">
         <span class="dp-time"><b>${fmtTime(x.start)}</b><small>– ${fmtTime(x.end)}</small></span>
         <span class="tg-mini">${poster(x.m,true)}</span>
         <span class="tg-li"><b>${esc(x.m.title)}</b><small>📍 ${esc(venueOf(x.s.venue)?.name||x.s.venue||'')}${x.s.screen?' · '+esc(x.s.screen):''} · ${runtime(x.m)} min</small><span class="tg-why">${esc(dpWhy(x,used))}</span></span>
       </div>
-      <div class="dp-acts">${x.s.going?'<span class="dp-in">✓ In My Plan</span>':''}<button class="btn sm" onclick="dpSwapOpen('${date}','${x.s.id}')">⇄ Swap</button><button class="btn sm" onclick="dpRemove('${date}','${x.s.id}')">Remove</button></div>
+      ${cl.length?`<div class="pwarn">⚠️ Clashes with: ${esc(cl.join(', '))}</div>`:''}
+      <div class="dp-acts">${mode==='best' ? `<button class="btn sm ${x.s.going?'dp-on':''}" aria-pressed="${!!x.s.going}" onclick="dpGo('${date}','${x.m.id}','${x.s.id}')">${x.s.going?'✓ Going':'+ Going'}</button>` : x.s.going?'<span class="dp-in">✓ In My Plan</span>':''}<button class="btn sm" onclick="dpSwapOpen('${date}','${x.s.id}')">⇄ Swap</button><button class="btn sm" onclick="dpRemove('${date}','${x.s.id}')">Remove</button></div>
       <div class="dp-alts" hidden></div>
-    </li>`).join('')}</ol>` : `<div class="empty"><h3>Nothing fits this day</h3>Try another day, or <button class="linkbtn" onclick="dpReset('${date}')">start this day again</button>.</div>`}
+    </li>`; }).join('')}</ol>` : `<div class="empty"><h3>Nothing fits this day</h3>Try another day, or <button class="linkbtn" onclick="dpReset('${date}')">start this day again</button>.</div>`}
     ${fill?`<button class="btn dp-add" onclick="dpSwapOpen('${date}','')">+ Add another film</button><div id="dp-addalts" class="dp-alts" hidden></div>`:''}
     <div class="tg-acts">
-      ${toAdd?`<button class="btn primary" onclick="dpAddAll('${date}')">Add ${toAdd===items.length?'all '+toAdd:toAdd+' more'} to My Plan</button>`:items.length?'<span class="tg-ok">✓ All in My Plan</span>':''}
+      ${mode==='fit' ? (toAdd?`<button class="btn primary" onclick="dpAddAll('${date}')">Add ${toAdd===items.length?'all '+toAdd:toAdd+' more'} to My Plan</button>`:items.length?'<span class="tg-ok">✓ All in My Plan</span>':'') : ''}
       <button class="linkbtn" onclick="dpReset('${date}')">Start this day again</button>
     </div>
   </div>`);
 }
-function dpAlts(date, sid){   // other shows that day that fit around the rest of the picks
-  const rec=dpLoad()[date]; if(!rec) return [];
+function dpGo(date, mid, sid){
+  const m=find(mid), s=m?.screenings.find(y=>y.id===sid); if(!s) return;
+  s.going=!s.going; if(s.going && m.status==='none') m.status='want'; save(); render(); openDayPick(date);
+  const w = s.going && clashInfo().get(sid);
+  toast(w ? '⚠️ In My Plan – but '+w[0] : s.going ? 'Added to My Plan' : 'Removed from My Plan');
+  document.getElementById('dp-'+sid)?.scrollIntoView({block:'nearest'});
+}
+function dpAlts(date, sid){   // other shows that day: in No clashes mode only those that fit around the other picks
+  const rec=dpLoad()[dpKey(date)]; if(!rec) return [];
   const others=rec.ids.filter(id=>id!==sid).map(dpItem).filter(Boolean);
   const used=new Set(others.map(x=>x.m.id).concat(sid?[dpItem(sid)?.m.id]:[]));
-  return dpCands(date, rec.skip).filter(x=>!used.has(x.m.id) && others.every(o=>dpFits(o,x)))
+  return dpCandsA(date, rec.skip).filter(x=>!used.has(x.m.id) && (dpMode()==='best' || others.every(o=>dpFits(o,x))))
     .sort((a,b)=>(_dpSc[b.m.id]?.s||0)-(_dpSc[a.m.id]?.s||0)).slice(0,8);
 }
 function dpSwapOpen(date, sid){
@@ -1019,26 +1061,28 @@ function dpSwapOpen(date, sid){
   if(!box) return;
   if(!box.hidden){ box.hidden=true; return; }
   document.querySelectorAll('.dp-alts').forEach(b=>b.hidden=true);
-  const alts=dpAlts(date, sid);
-  box.innerHTML = alts.length ? `<div class="dp-alts-h">${sid?'Swap for':'Add'} one of these – they fit around your other picks:</div>`+alts.map(x=>`<button class="dp-alt" onclick="dpPick('${date}','${sid}','${x.s.id}')"><b>${fmtTime(x.start)}–${fmtTime(x.end)}</b> ${esc(x.m.title)}<small>📍 ${esc(venueOf(x.s.venue)?.name||x.s.venue||'')} · ${runtime(x.m)} min · ${esc(dpWhy(x))}</small></button>`).join('')
+  const best=dpMode()==='best', alts=dpAlts(date, sid);
+  const others=(dpLoad()[dpKey(date)]?.ids||[]).filter(id=>id!==sid).map(dpItem).filter(Boolean);
+  box.innerHTML = alts.length ? `<div class="dp-alts-h">${sid?'Swap for':'Add'} one of these${best?' – next best for your taste that day':' – they fit around your other picks'}:</div>`+alts.map(x=>{ const c=best?dpClash(x,others.concat(x)):[];
+      return `<button class="dp-alt" onclick="dpPick('${date}','${sid}','${x.s.id}')"><b>${fmtTime(x.start)}–${fmtTime(x.end)}</b> ${esc(x.m.title)}<small>📍 ${esc(venueOf(x.s.venue)?.name||x.s.venue||'')} · ${runtime(x.m)} min · ${esc(dpWhy(x))}</small>${c.length?`<small class="dp-c">⚠️ Clashes with: ${esc(c.join(', '))}</small>`:best?'<small class="dp-ok">✓ No clash with your other picks</small>':''}</button>`; }).join('')
     : `<div class="dp-alts-h">Nothing else fits around your other picks${sid?'. Remove one of them to free up time.':'.'}</div>`;
   box.hidden=false;
 }
 function dpPick(date, oldId, newId){
-  const all=dpLoad(), rec=all[date]; if(!rec) return;
+  const all=dpLoad(), rec=all[dpKey(date)]; if(!rec) return;
   rec.ids = oldId ? rec.ids.map(id=>id===oldId?newId:id) : rec.ids.concat(newId);
   if(oldId){ const om=dpItem(oldId)?.m.id; if(om && !rec.skip.includes(om)) rec.skip.push(om); }
   dpStore(all); openDayPick(date);
 }
 function dpRemove(date, sid){
-  const all=dpLoad(), rec=all[date]; if(!rec) return;
+  const all=dpLoad(), rec=all[dpKey(date)]; if(!rec) return;
   const x=dpItem(sid); rec.ids=rec.ids.filter(id=>id!==sid); if(x && !rec.skip.includes(x.m.id)) rec.skip.push(x.m.id);
   dpStore(all); openDayPick(date);
   if(x?.s.going) toast('Removed from this shortlist – it’s still in My Plan');
 }
-function dpReset(date){ const all=dpLoad(); delete all[date]; dpStore(all); openDayPick(date); }
+function dpReset(date){ const all=dpLoad(); delete all[dpKey(date)]; dpStore(all); openDayPick(date); }
 function dpAddAll(date){
-  const rec=dpLoad()[date]; if(!rec) return;
+  const rec=dpLoad()[dpKey(date)]; if(!rec) return;
   let k=0; for(const id of rec.ids){ const x=dpItem(id); if(x && !x.s.going){ x.s.going=true; if(x.m.status==='none') x.m.status='want'; k++; } }
   save(); render(); openDayPick(date);
   const c=clashInfo(); const bad=rec.ids.find(id=>c.has(id));
