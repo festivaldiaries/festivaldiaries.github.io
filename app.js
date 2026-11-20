@@ -168,7 +168,7 @@ function routeOf(href){
   if(/^how-to\/?$/.test(p)) return {howto:true};
   if(/^play\/?$/.test(p)){ const q=(href.split('?')[1]||'').split('#')[0]; return {play:true, by:new URLSearchParams(q).get('by')||''}; }
   if(/^list\/?$/.test(p)){ const q=(href.split('?')[1]||'').split('#')[0]; const sp=new URLSearchParams(q); return {list:sp.get('f')||'', by:sp.get('n')||''}; }
-  if(/^plan\/?$/.test(p)){ const q=(href.split('?')[1]||'').split('#')[0]; const sp=new URLSearchParams(q); return {plan:sp.get('s')||'', by:sp.get('n')||''}; }
+  if(/^plan\/?$/.test(p)){ const q=(href.split('?')[1]||'').split('#')[0]; const sp=new URLSearchParams(q); return {plan:sp.get('s')||'', by:sp.get('n')||'', u:(sp.get('u')||'').replace(/[^A-Za-z0-9]/g,'')}; }
   if(/^schedule\/?$/.test(p)) return {view:'schedule'};
   if(/^my-list\/?$/.test(p)) return {view:'mine'};
   if(/^festival-darlings\/?$/.test(p)) return {view:'fest'};
@@ -186,7 +186,7 @@ function openRoute(r){
   if(r.howto){ openHowto(); return true; }
   if(r.play){ if(tgLoad()) openTaste(true); else openTaste(false, r.by); return true; }
   if(r.list!==undefined){ openSharedList(r.list, r.by); return true; }
-  if(r.plan!==undefined){ openSharedPlan(r.plan, r.by); return true; }
+  if(r.plan!==undefined){ if(r.u) openLivePlan(r.u); else openSharedPlan(r.plan, r.by); return true; }
   return false;
 }
 // Startup: work out the page from the URL (also handles old #film= links and GitHub's 404 redirect)
@@ -721,26 +721,54 @@ function planText(shows){
   const by={}; for(const x of shows){ const d=localISO(x.start); (by[d]=by[d]||[]).push(x); }
   return Object.keys(by).sort().map(d=>`*${fmtDay(new Date(d+'T12:00'))}*\n`+by[d].map(x=>`${fmtTime(x.start)} ${x.m.title} – ${venueOf(x.s.venue)?.name||x.s.venue||'venue TBA'}${x.s.screen?', '+x.s.screen:''}`).join('\n')).join('\n\n');
 }
+const PLAN_REF = () => cloud.fb.doc(cloud.fb.store,'plans',cloud.user.uid);
+async function pushPlan(){   // keeps plans/<uid> in step with My Plan – only while live sharing is on
+  if(!cloud.sharing || !cloud.user || !cloud.ready) return false;
+  try{ await cloud.fb.setDoc(PLAN_REF(), {n:cleanName(firstName()), s:myPlanShows().map(x=>x.s.id).slice(0,300), updated:Date.now()}); return true; }
+  catch(e){ console.warn('plan', e.code||e); return false; }
+}
+async function stopSharing(){
+  try{ await cloud.fb.deleteDoc(PLAN_REF()); }catch(e){ toast('Could not stop sharing – try again'); return; }
+  cloud.sharing=false; closeModal(); toast('Stopped sharing – your link no longer works');
+}
 async function shareSchedule(){
   const shows=myPlanShows(); if(!shows.length) return;
-  const nm=cleanName(firstName()), url = ROOT+'plan/?s='+shows.map(x=>x.s.id).join('.')+(nm?'&n='+encodeURIComponent(nm):'');
+  const nm=cleanName(firstName());
+  let live=false, url;
+  if(cloud.user && cloud.ready){ const was=cloud.sharing; cloud.sharing=true; live=await pushPlan(); if(!live) cloud.sharing=was; }
+  url = live ? ROOT+'plan/?u='+cloud.user.uid : ROOT+'plan/?s='+shows.map(x=>x.s.id).join('.')+(nm?'&n='+encodeURIComponent(nm):'');
   const title=planTitle(nm), head=`${title} – ${shows.length} show${shows.length>1?'s':''} 🎬`, body=planText(shows);
-  shareSchedule.txt = head+'\n\n'+body+'\n\nOpen it: '+url;
-  if(navigator.share && matchMedia('(pointer: coarse)').matches){ try{ await navigator.share({title, text:head+'\n\n'+body+'\n', url}); }catch(e){} return; }
-  const wa='https://wa.me/?text='+encodeURIComponent(shareSchedule.txt);
-  openModal(`<div class="sharedlg"><h2>Share your schedule</h2><p>Anyone with this link sees ${nm?'your first name and ':''}the ${shows.length} upcoming show${shows.length>1?'s':''} in My Plan, and can add them to their own plan. Share again after you change your plan.</p>
+  shareSchedule.txt = head+'\n\n'+body+'\n\n'+(live?'Always up to date: ':'Open it: ')+url;
+  shareSchedule.native = {title, text:head+'\n\n'+body+'\n', url};
+  const wa='https://wa.me/?text='+encodeURIComponent(shareSchedule.txt), canNative=!!navigator.share;
+  const note = live ? `This link always shows your current plan – add or remove shows and it updates by itself. Anyone with it sees your first name and your upcoming shows, and can add them to their own plan.`
+    : `Anyone with this link sees ${nm?'your first name and ':''}the ${shows.length} upcoming show${shows.length>1?'s':''} in My Plan, and can add them to their own plan. It’s a snapshot – <b>sign in</b> to get a link that updates by itself.`;
+  openModal(`<div class="sharedlg"><h2>Share your schedule</h2><p>${note}</p>
     <div class="shr-link"><input readonly value="${esc(url)}" onclick="this.select()" aria-label="Link to your schedule"><button class="icbtn" onclick="copyText('${esc(url)}')" aria-label="Copy link" title="Copy link">${IC.copy}</button></div>
     <div class="shr-opts">
       <button onclick="copyText('${esc(url)}')"><span class="ico">${IC.link}</span>Copy link</button>
       <button onclick="copyText(shareSchedule.txt,'Schedule copied')"><span class="ico">${IC.copy}</span>Copy as text</button>
       <a href="${esc(wa)}" target="_blank" rel="noopener"><span class="ico wa">${IC.wa}</span>WhatsApp</a>
-      <a href="${esc(url)}" target="_blank" rel="noopener"><span class="ico">${IC.open}</span>Open</a>
-    </div></div>`);
+      ${canNative?`<button onclick="navigator.share(shareSchedule.native).catch(()=>{})"><span class="ico">${IC.share}</span>More</button>`:`<a href="${esc(url)}" target="_blank" rel="noopener"><span class="ico">${IC.open}</span>Open</a>`}
+    </div>${live?`<p class="shr-stop"><span class="live-dot"></span>Live sharing is on · <button class="linkbtn" onclick="stopSharing()">Stop sharing</button></p>`:''}</div>`);
+}
+async function openLivePlan(uid){
+  const u=ROOT+'plan/?u='+uid;
+  openModal(`<div class="slist"><h2>Loading schedule…</h2></div>`, u);
+  let ids=null, n='';
+  try{
+    const r=await fetch(`https://firestore.googleapis.com/v1/projects/${FB_CFG.projectId}/databases/(default)/documents/plans/${uid}?key=${FB_CFG.apiKey}`);
+    if(r.ok){ const f=(await r.json()).fields||{}; n=f.n?.stringValue||''; ids=(f.s?.arrayValue?.values||[]).map(v=>v.stringValue).filter(Boolean); }
+  }catch(e){}
+  if(!$('#scrim').classList.contains('open')) return;
+  if(!ids){ openModal(`<div class="ask"><h2>This schedule isn’t shared any more</h2><p>The person may have stopped sharing it. Ask them for a new link.</p><button class="btn primary" onclick="closeModal()">Browse all films</button></div>`, u); return; }
+  openSharedPlan(ids.join('.'), n, uid);
 }
 function sharedShows(code){ const ids=new Set(String(code||'').split('.').filter(Boolean)); return {want:ids.size, shows:allScreenings().filter(x=>ids.has(x.s.id))}; }
-function openSharedPlan(code, by){
-  const {want, shows}=sharedShows(code), n=now(), u=ROOT+'plan/?s='+encodeURIComponent(code||'').replace(/%2E/gi,'.')+(cleanName(by)?'&n='+encodeURIComponent(cleanName(by)):'');
-  if(!shows.length){ openModal(`<div class="ask"><h2>This schedule is empty</h2><p>The link may be incomplete, or the shows have moved. Ask for it to be shared again.</p><button class="btn primary" onclick="closeModal()">Browse all films</button></div>`, u); return; }
+function openSharedPlan(code, by, uid){
+  uid=String(uid||'').replace(/[^A-Za-z0-9]/g,'');
+  const {want, shows}=sharedShows(code), n=now(), u= uid ? ROOT+'plan/?u='+uid : ROOT+'plan/?s='+encodeURIComponent(code||'').replace(/%2E/gi,'.')+(cleanName(by)?'&n='+encodeURIComponent(cleanName(by)):'');
+  if(!shows.length){ openModal(`<div class="ask"><h2>This schedule is empty</h2><p>${uid?'Nothing is planned yet, or every show is over. Check again later.':'The link may be incomplete, or the shows have moved. Ask for it to be shared again.'}</p><button class="btn primary" onclick="closeModal()">Browse all films</button></div>`, u); return; }
   const mine=planCtx().plan, up=shows.filter(x=>x.end>n), by_={};
   for(const x of shows){ const d=localISO(x.start); (by_[d]=by_[d]||[]).push(x); }
   let add=0;
@@ -749,16 +777,16 @@ function openSharedPlan(code, by){
     return `<button class="srow sp-row${past?' past':''}" onclick="openDetail('${x.m.id}')"><div class="sp-t"><b>${fmtTime(x.start)}</b><small>${fmtTime(x.end)}</small></div><div class="info"><div class="t">${esc(x.m.title)}</div><div class="meta">${esc(venueOf(x.s.venue)?.name||x.s.venue||'Venue TBA')}${x.s.screen?' · '+esc(x.s.screen):''}</div>${tag?`<div class="sp-tag">${tag}</div>`:''}</div></button>`; };
   const days = Object.keys(by_).sort().map(d=>`<h3 class="sp-d">${fmtDay(new Date(d+'T12:00'))}</h3><div class="srows">${by_[d].map(row).join('')}</div>`).join('');
   const gone = want-shows.length;
-  openModal(`<div class="slist"><h2>${esc(planTitle(by))}</h2><p class="upd">${shows.length} show${shows.length>1?'s':''} at IFFI Goa 2026 · shared from Festival Diaries · Goa${gone>0?` · ${gone} no longer in the official schedule`:''}</p>
+  openModal(`<div class="slist"><h2>${esc(planTitle(by))}</h2><p class="upd">${shows.length} show${shows.length>1?'s':''} at IFFI Goa 2026 · ${uid?'live from':'shared from'} Festival Diaries · Goa${gone>0&&!uid?` · ${gone} no longer in the official schedule`:''}</p>
     ${days}
-    <div class="pact">${add ? `<button class="pillbtn on" onclick="addSharedPlan('${esc(code)}','${esc(cleanName(by)).replace(/'/g,'&#39;')}')">＋ Add ${add} to my plan</button>` : `<span class="done">${up.length?'✓ Nothing more fits your plan':'These shows are over'}</span>`}<button class="linkbtn more" onclick="closeModal()">Browse all films →</button></div></div>`, u);
+    <div class="pact">${add ? `<button class="pillbtn on" onclick="addSharedPlan('${esc(code)}','${esc(cleanName(by)).replace(/'/g,'&#39;')}','${uid}')">＋ Add ${add} to my plan</button>` : `<span class="done">${up.length?'✓ Nothing more fits your plan':'These shows are over'}</span>`}<button class="linkbtn more" onclick="closeModal()">Browse all films →</button></div></div>`, u);
   document.title = planTitle(by)+' · '+SITE;
 }
-function addSharedPlan(code, by){
+function addSharedPlan(code, by, uid){
   const {shows}=sharedShows(code), n=now(), plan=planCtx().plan.slice(); let k=0, skip=0;
   for(const x of shows){ if(x.s.going || x.end<=n || plan.some(y=>y.m===x.m)) continue; if(wouldClash(x, plan)){ skip++; continue; }
     x.s.going=true; if(x.m.status==='none') x.m.status='want'; plan.push(x); k++; }
-  save(); render(); openSharedPlan(code, by);
+  save(); render(); openSharedPlan(code, by, uid);
   toast(k ? `Added ${k} show${k>1?'s':''} to My Plan${skip?` · skipped ${skip} that clash`:''}` : 'Nothing more fits your plan');
 }
 function mineGroups(){
@@ -1664,7 +1692,8 @@ function privacyHtml(){
 <h3>Watchlist counts</h3>
 <p>When you save a film to your watchlist while signed in, it adds one to that film’s count, such as “3 people want to see this”. Only the number is shown – never your name or who saved it. Removing the film, or deleting your account, takes you out of the count.</p>
 <h3>Shared lists</h3>
-<p>If you share your watchlist or schedule, the link shows your first name and the films or shows on it to anyone you send it to. Nothing is stored for it.</p>
+<p>If you share your watchlist, or share your schedule while signed out, the link shows your first name and the films or shows on it to anyone you send it to. Nothing is stored for it.</p>
+<p>If you share your schedule while signed in, we keep a copy of your first name and the shows in your plan online, so the link always shows your current plan to anyone who has it. It stays until you tap <b>Stop sharing</b> or delete your account.</p>
 <h3>Other sites</h3>
 <p>Trailer, map, calendar and ratings links open other sites (YouTube, Google Maps, IMDb and others), which have their own privacy policies. If you add an OMDb key for ratings, it stays on your device.</p>
 <h3>If something goes wrong</h3>
@@ -1747,6 +1776,7 @@ async function deleteAccount(){
     const fs = new Set([...wlMine(), ...db.movies.filter(m=>m.status==='want').map(wlSlug).filter(Boolean)]);
     await Promise.all([...fs].map(f=>deleteDoc(doc(cloud.fb.store,'counts',f,'by',u.uid)).catch(()=>{})));
     try{ localStorage.removeItem(WL_KEY(u.uid)); }catch(e){}
+    await deleteDoc(doc(cloud.fb.store,'plans',u.uid)).catch(()=>{});
     await deleteDoc(doc(cloud.fb.store,'users',u.uid)); listsGone=true;
     cloud.deleting=true;
     try{ await deleteUser(u); }
@@ -1803,7 +1833,7 @@ async function pushNow(){
   if(fixed){ _localSave(); render(); }
   cloud.marks = marks;
   const {doc,setDoc} = cloud.fb;
-  try{ await setDoc(doc(cloud.fb.store,'users',cloud.user.uid), clean({marks, custom:db.movies.filter(m=>!isOfficial(m)), consent:cloud.consent||undefined, updated:Date.now()})); syncCounts(); }
+  try{ await setDoc(doc(cloud.fb.store,'users',cloud.user.uid), clean({marks, custom:db.movies.filter(m=>!isOfficial(m)), consent:cloud.consent||undefined, updated:Date.now()})); syncCounts(); pushPlan(); }
   catch(e){ console.warn(e); toast('Could not save online – will retry'); pushSoon(); }
 }
 const _localSave = save;
@@ -1811,7 +1841,7 @@ save = function(){ _localSave(); if(cloud.user && cloud.ready) pushSoon(); };
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden && cloud.t) pushNow(); });
 async function onUser(u){
   let wasIn=!!cloud.user; try{ wasIn = wasIn || localStorage.getItem('fd-in')==='1'; }catch(e){}
-  cloud.user=u; cloud.ready=false; if(cloud.unsub){ cloud.unsub(); cloud.unsub=null; }
+  cloud.user=u; cloud.ready=false; cloud.sharing=false; if(cloud.unsub){ cloud.unsub(); cloud.unsub=null; }
   try{ if(u){ localStorage.setItem('fd-in','1'); localStorage.setItem('fd-was','1'); } else localStorage.removeItem('fd-in'); }catch(e){}
   signinLabel();
   if(!u && cloud.deleting){   // account just deleted: forget everything on this device too
@@ -1835,6 +1865,7 @@ async function onUser(u){
     for(const [k,v] of Object.entries(parked)){ if(k.startsWith('custom:')){ if(!have.has(tkey(v))){ custom.push(v); have.add(tkey(v)); } } else if(!marks[k]) marks[k]=v; }
     for(const m of db.movies) if(!isOfficial(m) && !have.has(tkey(m))) custom.push(clean(m));
     cloud.marks = {}; applyRemote({marks, custom}); cloud.ready = true;
+    try{ cloud.sharing = (await getDoc(doc(cloud.fb.store,'plans',u.uid))).exists(); }catch(e){ cloud.sharing=false; }
     await pushNow();
     cloud.unsub = onSnapshot(ref, s=>{ if(!s.metadata.hasPendingWrites && s.exists()) applyRemote(s.data()); });
     const pd = cloud.pending; cloud.pending = null;
