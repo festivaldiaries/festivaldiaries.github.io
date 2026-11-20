@@ -168,6 +168,7 @@ function routeOf(href){
   if(/^how-to\/?$/.test(p)) return {howto:true};
   if(/^play\/?$/.test(p)){ const q=(href.split('?')[1]||'').split('#')[0]; return {play:true, by:new URLSearchParams(q).get('by')||''}; }
   if(/^list\/?$/.test(p)){ const q=(href.split('?')[1]||'').split('#')[0]; const sp=new URLSearchParams(q); return {list:sp.get('f')||'', by:sp.get('n')||''}; }
+  if(/^plan\/?$/.test(p)){ const q=(href.split('?')[1]||'').split('#')[0]; const sp=new URLSearchParams(q); return {plan:sp.get('s')||'', by:sp.get('n')||''}; }
   if(/^schedule\/?$/.test(p)) return {view:'schedule'};
   if(/^my-list\/?$/.test(p)) return {view:'mine'};
   if(/^festival-darlings\/?$/.test(p)) return {view:'fest'};
@@ -175,7 +176,7 @@ function routeOf(href){
 }
 function syncTitle(){
   const r=routeOf(), m=r.film&&db.movies.find(x=>slug(x.title)===r.film), v=r.venue&&venueById(r.venue);
-  const t = m ? m.title : v ? v.name : r.privacy ? 'Privacy & your data' : r.howto ? 'How to use' : r.play ? 'This or That' : r.list!==undefined ? listTitle(r.by) : VIEW_NAME[r.view||state.view];
+  const t = m ? m.title : v ? v.name : r.privacy ? 'Privacy & your data' : r.howto ? 'How to use' : r.play ? 'This or That' : r.list!==undefined ? listTitle(r.by) : r.plan!==undefined ? planTitle(r.by) : VIEW_NAME[r.view||state.view];
   document.title = t ? t+' · '+SITE : SITE;
 }
 function openRoute(r){
@@ -185,6 +186,7 @@ function openRoute(r){
   if(r.howto){ openHowto(); return true; }
   if(r.play){ if(tgLoad()) openTaste(true); else openTaste(false, r.by); return true; }
   if(r.list!==undefined){ openSharedList(r.list, r.by); return true; }
+  if(r.plan!==undefined){ openSharedPlan(r.plan, r.by); return true; }
   return false;
 }
 // Startup: work out the page from the URL (also handles old #film= links and GitHub's 404 redirect)
@@ -193,7 +195,7 @@ function initRoute(){
   const hf=(location.hash.match(/film=([^&]+)/)||[])[1], hv=(location.hash.match(/venue=([^&]+)/)||[])[1];
   if(hf) history.replaceState(null,'',ROOT+'film/'+hf+'/'); else if(hv) history.replaceState(null,'',ROOT+'venue/'+hv+'/');
   const r=routeOf();
-  if(r.film||r.venue||r.privacy||r.howto||r.play||r.list!==undefined){ initRoute.pending=r; history.replaceState({view:'all'},'',ROOT); state.view='all'; }
+  if(r.film||r.venue||r.privacy||r.howto||r.play||r.list!==undefined||r.plan!==undefined){ initRoute.pending=r; history.replaceState({view:'all'},'',ROOT); state.view='all'; }
   else { state.view=r.view; history.replaceState({view:r.view},'',ROOT+VIEW_PATH[r.view]+(r.unknown?'':location.search)); }
 }
 initRoute();
@@ -223,9 +225,12 @@ function render(){
   const v = {schedule:renderSchedule, mine:renderMine, fest:renderFest}[state.view] || (()=>renderGrid('all'));
   const y=window.scrollY; $('#main').innerHTML = v(); tick(); if(y) window.scrollTo(0,y);
   initVenueMap();
-  const ds=document.querySelector('.dstrip'), on=ds?.querySelector('.dtile.on'); if(on && ds.scrollWidth>ds.clientWidth) ds.scrollLeft = on.offsetLeft - ds.offsetLeft - ds.clientWidth/2 + on.offsetWidth/2;
+  const ds=document.querySelector('.dstrip'), on=ds?.querySelector('.dtile.on'); dockSync(!!ds); if(on && ds.scrollWidth>ds.clientWidth) ds.scrollLeft = on.offsetLeft - ds.offsetLeft - ds.clientWidth/2 + on.offsetWidth/2;
 }
 
+function dockSync(on){ document.body.classList.toggle('dock', on); const t=$('#tabs'), fixed=t && getComputedStyle(t).position==='fixed';
+  document.documentElement.style.setProperty('--navh', (fixed? t.getBoundingClientRect().height : 0)+'px'); }
+addEventListener('resize', ()=>dockSync(!!document.querySelector('.dstrip')));
 /* ---------- venues ---------- */
 const VENUES = [
   {id:'inox-panaji', lat:15.49868, lon:73.82117, g:'pan', travel:'', name:'INOX Panaji', area:'Panaji', kind:'cinema', re:/inox.*(panaji|gmc)|old gmc|gmc heritage/i, map:'INOX Panaji, Old GMC Heritage Precinct, Panaji, Goa', about:'PVR INOX Panjim, the main festival hub in the Old GMC Heritage Precinct, with four screens (Audi 1–4). Free delegate rickshaws: service lane in front of Old GMC.'},
@@ -519,7 +524,7 @@ function renderCalendar(){
   html += dateStrip(days, d, 'setSDay');
   const nCl=items.filter(x=>cl.has(x.s.id)).length, up=items.some(x=>x.end>n), canPick=dpDays().includes(d);
   html += `<div class="cal-h"><div><h2>${fmtDay(dd)}${d===today?' · Today':''}</h2><span>${items.length?`${items.length} show${items.length>1?'s':''} planned`:'Nothing planned yet'}${nCl?` · <b class="cal-cl">${nCl} clash${nCl>1?'es':''}</b>`:''}</span></div>
-    <div class="cal-acts">${canPick?`<button class="pillbtn" onclick="openDayPick('${d}')">✨ Pick my day</button>`:''}${up?`<button class="pillbtn" onclick="dayICS('${d}')" aria-label="Add this day to your phone's calendar">${IC.cal}Save day</button>`:''}</div></div>`;
+    <div class="cal-acts">${canPick?`<button class="pillbtn" onclick="openDayPick('${d}')">✨ Pick my day</button>`:''}${up?`<button class="pillbtn" onclick="dayICS('${d}')" aria-label="Add this day to your phone's calendar">${IC.cal}Save day</button>`:''}${myPlanShows().length?`<button class="pillbtn" onclick="shareSchedule()" aria-label="Share your schedule">${IC.share}Share</button>`:''}</div></div>`;
   const short=dd.toLocaleDateString('en-IN',{weekday:'short',day:'numeric'});
   if(!items.length){
     html += `<div class="empty cal-empty"><h3>Your ${short} is free</h3>${d<today?'This day is over.':'Pick films yourself, or let us suggest the day’s best for your taste.'}${d>=today?`<div class="cal-eb">${canPick?`<button class="btn primary" onclick="openDayPick('${d}')">✨ Pick my day</button>`:''}<button class="btn" onclick="state.day='${d}';state.smode='time';window.scrollTo(0,0);render()">Browse ${short} shows</button></div>`:''}</div>`;
@@ -685,7 +690,7 @@ async function shareWatchlist(){
       <a href="${esc(url)}" target="_blank" rel="noopener"><span class="ico">${IC.open}</span>Open</a>
     </div></div>`);
 }
-async function copyText(t){ try{ await navigator.clipboard.writeText(t); toast('Link copied'); }catch(e){ toast('Could not copy – select the link and copy it'); } }
+async function copyText(t,msg){ try{ await navigator.clipboard.writeText(t); toast(msg||'Link copied'); }catch(e){ toast('Could not copy – select the link and copy it'); } }
 function sharedFilms(code){
   const seen=new Set(); return String(code||'').split('.').map(sl=>db.movies.find(m=>slug(m.title)===sl)).filter(m=>m && !seen.has(m.id) && seen.add(m.id));
 }
@@ -708,6 +713,53 @@ function saveSharedList(code, by){
   const films = sharedFilms(code);
   let k=0; for(const m of films) if(m.status!=='want' && m.status!=='watched'){ m.status='want'; k++; }
   save(); render(); openSharedList(code, by); toast(k ? `Saved ${k} film${k>1?'s':''} to My Watchlist` : 'Already in your watchlist');
+}
+/* ---------- shared schedule: plan/?s=screeningId.screeningId…&n=Name ---------- */
+const planTitle = n => (n=cleanName(n)) ? `${n}’s IFFI Schedule` : 'An IFFI Goa 2026 Schedule';
+function myPlanShows(){ const n=now(); return allScreenings().filter(x=>x.s.going && x.m.status!=='watched' && x.end>n); }
+function planText(shows){
+  const by={}; for(const x of shows){ const d=localISO(x.start); (by[d]=by[d]||[]).push(x); }
+  return Object.keys(by).sort().map(d=>`*${fmtDay(new Date(d+'T12:00'))}*\n`+by[d].map(x=>`${fmtTime(x.start)} ${x.m.title} – ${venueOf(x.s.venue)?.name||x.s.venue||'venue TBA'}${x.s.screen?', '+x.s.screen:''}`).join('\n')).join('\n\n');
+}
+async function shareSchedule(){
+  const shows=myPlanShows(); if(!shows.length) return;
+  const nm=cleanName(firstName()), url = ROOT+'plan/?s='+shows.map(x=>x.s.id).join('.')+(nm?'&n='+encodeURIComponent(nm):'');
+  const title=planTitle(nm), head=`${title} – ${shows.length} show${shows.length>1?'s':''} 🎬`, body=planText(shows);
+  shareSchedule.txt = head+'\n\n'+body+'\n\nOpen it: '+url;
+  if(navigator.share && matchMedia('(pointer: coarse)').matches){ try{ await navigator.share({title, text:head+'\n\n'+body+'\n', url}); }catch(e){} return; }
+  const wa='https://wa.me/?text='+encodeURIComponent(shareSchedule.txt);
+  openModal(`<div class="sharedlg"><h2>Share your schedule</h2><p>Anyone with this link sees ${nm?'your first name and ':''}the ${shows.length} upcoming show${shows.length>1?'s':''} in My Plan, and can add them to their own plan. Share again after you change your plan.</p>
+    <div class="shr-link"><input readonly value="${esc(url)}" onclick="this.select()" aria-label="Link to your schedule"><button class="icbtn" onclick="copyText('${esc(url)}')" aria-label="Copy link" title="Copy link">${IC.copy}</button></div>
+    <div class="shr-opts">
+      <button onclick="copyText('${esc(url)}')"><span class="ico">${IC.link}</span>Copy link</button>
+      <button onclick="copyText(shareSchedule.txt,'Schedule copied')"><span class="ico">${IC.copy}</span>Copy as text</button>
+      <a href="${esc(wa)}" target="_blank" rel="noopener"><span class="ico wa">${IC.wa}</span>WhatsApp</a>
+      <a href="${esc(url)}" target="_blank" rel="noopener"><span class="ico">${IC.open}</span>Open</a>
+    </div></div>`);
+}
+function sharedShows(code){ const ids=new Set(String(code||'').split('.').filter(Boolean)); return {want:ids.size, shows:allScreenings().filter(x=>ids.has(x.s.id))}; }
+function openSharedPlan(code, by){
+  const {want, shows}=sharedShows(code), n=now(), u=ROOT+'plan/?s='+encodeURIComponent(code||'').replace(/%2E/gi,'.')+(cleanName(by)?'&n='+encodeURIComponent(cleanName(by)):'');
+  if(!shows.length){ openModal(`<div class="ask"><h2>This schedule is empty</h2><p>The link may be incomplete, or the shows have moved. Ask for it to be shared again.</p><button class="btn primary" onclick="closeModal()">Browse all films</button></div>`, u); return; }
+  const mine=planCtx().plan, up=shows.filter(x=>x.end>n), by_={};
+  for(const x of shows){ const d=localISO(x.start); (by_[d]=by_[d]||[]).push(x); }
+  let add=0;
+  const row = x => { const inP=x.s.going, past=x.end<=n, alt=!inP && !past && mine.find(y=>y.m===x.m), c=!inP && !past && !alt && wouldClash(x, mine); if(!inP && !past && !alt && !c) add++;
+    const tag = inP ? '<span class="tag saved">In your plan</span>' : past ? '<span class="tag">Over</span>' : alt ? `<span class="tag">You’re seeing it ${fmtShort(alt.start)}, ${fmtTime(alt.start)}</span>` : c ? '<span class="tag sp-cl">Clashes with your plan</span>' : '';
+    return `<button class="srow sp-row${past?' past':''}" onclick="openDetail('${x.m.id}')"><div class="sp-t"><b>${fmtTime(x.start)}</b><small>${fmtTime(x.end)}</small></div><div class="info"><div class="t">${esc(x.m.title)}</div><div class="meta">${esc(venueOf(x.s.venue)?.name||x.s.venue||'Venue TBA')}${x.s.screen?' · '+esc(x.s.screen):''}</div>${tag?`<div class="sp-tag">${tag}</div>`:''}</div></button>`; };
+  const days = Object.keys(by_).sort().map(d=>`<h3 class="sp-d">${fmtDay(new Date(d+'T12:00'))}</h3><div class="srows">${by_[d].map(row).join('')}</div>`).join('');
+  const gone = want-shows.length;
+  openModal(`<div class="slist"><h2>${esc(planTitle(by))}</h2><p class="upd">${shows.length} show${shows.length>1?'s':''} at IFFI Goa 2026 · shared from Festival Diaries · Goa${gone>0?` · ${gone} no longer in the official schedule`:''}</p>
+    ${days}
+    <div class="pact">${add ? `<button class="pillbtn on" onclick="addSharedPlan('${esc(code)}','${esc(cleanName(by)).replace(/'/g,'&#39;')}')">＋ Add ${add} to my plan</button>` : `<span class="done">${up.length?'✓ Nothing more fits your plan':'These shows are over'}</span>`}<button class="linkbtn more" onclick="closeModal()">Browse all films →</button></div></div>`, u);
+  document.title = planTitle(by)+' · '+SITE;
+}
+function addSharedPlan(code, by){
+  const {shows}=sharedShows(code), n=now(), plan=planCtx().plan.slice(); let k=0, skip=0;
+  for(const x of shows){ if(x.s.going || x.end<=n || plan.some(y=>y.m===x.m)) continue; if(wouldClash(x, plan)){ skip++; continue; }
+    x.s.going=true; if(x.m.status==='none') x.m.status='want'; plan.push(x); k++; }
+  save(); render(); openSharedPlan(code, by);
+  toast(k ? `Added ${k} show${k>1?'s':''} to My Plan${skip?` · skipped ${skip} that clash`:''}` : 'Nothing more fits your plan');
 }
 function mineGroups(){
   const n=now(), all=allScreenings();
@@ -1295,7 +1347,7 @@ function closeModal(fromBack){ if(!$('#scrim').classList.contains('open')) retur
 window.addEventListener('popstate', ()=>{ if($('#sheet').classList.contains('open')) closeSheet(true); else if($('#scrim').classList.contains('open')) closeModal(true); });
 window.addEventListener('popstate', ()=>{   // keep the page in step with the URL (back / forward)
   const r=routeOf();
-  if(r.film||r.venue||r.privacy||r.howto||r.play||r.list!==undefined){ if(!$('#scrim').classList.contains('open')) openRoute(r); }
+  if(r.film||r.venue||r.privacy||r.howto||r.play||r.list!==undefined||r.plan!==undefined){ if(!$('#scrim').classList.contains('open')) openRoute(r); }
   else if(state.view!==r.view) setView(r.view, true);
   syncTitle();
 });
@@ -1612,7 +1664,7 @@ function privacyHtml(){
 <h3>Watchlist counts</h3>
 <p>When you save a film to your watchlist while signed in, it adds one to that film’s count, such as “3 people want to see this”. Only the number is shown – never your name or who saved it. Removing the film, or deleting your account, takes you out of the count.</p>
 <h3>Shared lists</h3>
-<p>If you share your watchlist, the link shows your first name and the films on it to anyone you send it to. Nothing is stored for it.</p>
+<p>If you share your watchlist or schedule, the link shows your first name and the films or shows on it to anyone you send it to. Nothing is stored for it.</p>
 <h3>Other sites</h3>
 <p>Trailer, map, calendar and ratings links open other sites (YouTube, Google Maps, IMDb and others), which have their own privacy policies. If you add an OMDb key for ratings, it stays on your device.</p>
 <h3>If something goes wrong</h3>

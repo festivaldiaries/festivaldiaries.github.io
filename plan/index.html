@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<base href="../"><script>{const b=document.querySelector("base");b.href=b.href}</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#ffffff">
+<meta name="description" content="Shows picked for IFFI Goa 2026, day by day, with times and venues. Tap to see the schedule.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Festival Diaries · Goa">
+<meta property="og:title" content="A schedule for IFFI Goa 2026">
+<meta property="og:description" content="Shows picked for IFFI Goa 2026, day by day, with times and venues. Tap to see the schedule.">
+<meta property="og:image" content="https://festivaldiaries.github.io/og.png">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:url" content="https://festivaldiaries.github.io/plan/">
+<link rel="canonical" href="https://festivaldiaries.github.io/plan/">
+<meta name="robots" content="noindex">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Festival Diaries">
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>A schedule for IFFI Goa 2026 · Festival Diaries · Goa</title>
+<link rel="stylesheet" href="app.css?v=1c81d54c22">
+</head>
+<body class="guest">
+<header>
+  <div class="bar">
+    <a class="logo" id="home" href="./" aria-label="Festival Diaries Goa – home"><svg class="lmark" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#3E4EB0"/><circle cx="32" cy="32" r="19" fill="#fff"/><g fill="#3E4EB0"><circle cx="32.00" cy="21.50" r="4.6"/><circle cx="41.99" cy="28.76" r="4.6"/><circle cx="38.17" cy="40.49" r="4.6"/><circle cx="25.83" cy="40.49" r="4.6"/><circle cx="22.01" cy="28.76" r="4.6"/><circle cx="32" cy="32" r="2"/></g></svg><span class="lname"><b>Festival Diaries</b><small>Goa</small></span></a>
+    <nav id="tabs" aria-label="Main">
+      <a href="./" data-v="all" class="on"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M15.6 8.4l-2.1 5.1-5.1 2.1 2.1-5.1z"/></svg><span class="lbl">Discover</span></a>
+      <a href="my-list/" data-v="mine"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5V6a1.5 1.5 0 0 1 1.5-1.5h14A1.5 1.5 0 0 1 20.5 6v2.5a2.5 2.5 0 0 0 0 5V18a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18v-4.5a2.5 2.5 0 0 0 0-5z"/><path d="M14.5 5v14" stroke-dasharray="2 2.2"/></svg><span class="lbl">My Shortlist</span><span class="n" id="n-mine">0</span></a>
+      <a href="schedule/" data-v="schedule"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span class="lbl">Schedule</span></a>
+    </nav>
+    <div class="spacer"></div>
+    <input class="search" id="q" type="search" enterkeyhint="search" autocomplete="off" placeholder="Search films or directors" aria-label="Search films or directors">
+    <button class="gbtn" id="signinBtn" onclick="askSignIn()" aria-label="Sign up or sign in with Google"><svg class="glogo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg><span id="signinTxt">Sign up</span></button>
+    <div class="menu" id="menu">
+      <button class="avatar" id="menuBtn" aria-label="Account" aria-haspopup="true" aria-expanded="false"></button>
+      <div class="dd">
+        <div id="cloudState" class="acct"></div>
+        <div class="dd-sec" role="menu">
+          <button role="menuitem" data-a="mine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>My Shortlist</button>
+          <button role="menuitem" data-a="plan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>My Plan</button>
+          <button role="menuitem" data-a="taste"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="8" height="14" rx="1.5"/><rect x="13.5" y="5" width="8" height="14" rx="1.5"/></svg>My top 10 · This or That</button>
+        </div>
+        <div class="dd-sec" role="menu">
+          <button role="menuitem" data-a="howto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6M12 17.2v.1"/></svg>How to use the site</button>
+          <button role="menuitem" data-a="account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Account &amp; data</button>
+          <button role="menuitem" data-a="privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>Privacy</button>
+        </div>
+        <div class="dd-sec" role="menu">
+          <button role="menuitem" data-a="cloud" id="cloudBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"/></svg>Sign out</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main"></main>
+<footer class="foot-note">Festival Diaries · Goa is an unofficial fan guide to IFFI Goa 2026. Not affiliated with IFFI, the Entertainment Society of Goa or the Government of India. <a href="how-to/" onclick="openHowto();return false">How to use</a> · <a href="privacy/" onclick="openPrivacy();return false">Privacy &amp; your data</a></footer>
+
+<div class="scrim" id="scrim"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast"></div>
+<div id="peek"></div><div id="sheetScrim"></div><div id="sheet"></div>
+<script src="data.js?v=16d34bdb6c"></script>
+<input type="file" id="file" accept=".json,application/json" hidden>
+
+<script src="app.js?v=b20e3897a2"></script>
+</body>
+</html>
